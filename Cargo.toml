@@ -1,0 +1,20 @@
+[package]
+name = "maivin-gnss"
+description = "Maivin camera gps publishing service using Zenoh"
+repository = "https://bitbucket.org/au-zone/maivin-gnss/src"
+license = "CLOSED"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-std = {version = "1.12.0", features = ["attributes"] }
+clap = { version = "4.4.6", features = ["derive"] }
+zenoh = "0.10.0-rc"
+zenoh-ros-type = { git = "https://github.com/evshary/zenoh-ros-type", branch = "main" }
+cdr = "0.2.4"
