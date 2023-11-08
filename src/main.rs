@@ -1,15 +1,19 @@
 use zenoh_ros_type::common_interfaces::sensor_msgs::nav_sat_status;
 use zenoh_ros_type::common_interfaces::sensor_msgs::nav_sat_fix;
-use zenoh_ros_type::common_interfaces::sensor_msgs::NavSatFix;
-use zenoh::prelude::r#async::*;
+use zenoh::{prelude::sync::*, publication::CongestionControl};
 use cdr::{CdrLe, Infinite};
-use async_std::task::sleep;
+use std::net::TcpStream;
 use std::time::Duration;
-use std::io::{self};
+use std::thread::sleep;
 use clap::Parser;
+use std::io;
+
+use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
+use itertools::Itertools;
 
 mod connection;
 mod messages;
+
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -22,6 +26,10 @@ struct Args {
     #[arg(short='e', long="endpoint")]
     endpoint: Vec<String>,
 
+    /// connect to GPS endpoint
+    #[arg(short='g', long="gps-endpoint", default_value="127.0.0.1:2947")]
+    gps_endpoint: String,
+
     /// ros topic.
     #[arg(short='t', long="topic", default_value = "rt/gps")]
     topic: String,
@@ -31,47 +39,112 @@ struct Args {
     publisher: bool,
 }
 
-#[async_std::main]
-async fn main() -> io::Result<()> {
+fn main() -> Result<(), GpsdError> {
     let args = Args::parse();
 
     // Start a Zenoh connection at the endpoint.
-    let session = connection::start_session(&args.mode, &args.endpoint).await.unwrap();
+    let session = connection::start_session(&args.mode, &args.endpoint).unwrap();
     
     // Publish messages.
-    if args.publisher {
-        let publisher = session.declare_publisher(&args.topic).res().await.unwrap();
+    let publisher = session
+        .declare_publisher(args.topic.clone())
+        .congestion_control(CongestionControl::Block)
+        .res()
+        .unwrap();
 
-        for _idx in 0..u32::MAX {
-            
-            sleep(Duration::from_millis(50)).await;
-                    
+    if let Ok(stream) = TcpStream::connect(&args.gps_endpoint) {
+        let mut reader = io::BufReader::new(&stream);
+        let mut writer = io::BufWriter::new(&stream);
+        
+        handshake(&mut reader, &mut writer)?;
+
+        loop {
             let frame = String::from("GPSMap");
             println!("Publish GPS on '{}' for '{}')...", &args.topic, frame);
             
             // Build the IMU message type.
             let header = messages:: header(&frame);
-            let status = messages::gps_status(nav_sat_status::STATUS_NO_FIX, 1); // Service is unknown currently.
-            let nav_fix = messages::gps_fix(
-                header, 
-                status, 
-                51.05, 
-                -114.07, 
-                1045.0, 
-                [-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], 
-                nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
-            );
-            
-            let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
-            publisher.put(encoded).res().await.unwrap();
+
+            let mut latitude = std::f64::NAN;
+            let mut longitude = std::f64::NAN;
+            let mut altitude = std::f32::NAN;
+            let mut track = std::f32::NAN;
+            let mut speed = std::f32::NAN;
+
+            sleep(Duration::from_millis(50));
+
+            let msg = get_data(&mut reader)?;
+            match msg {
+                ResponseData::Device(d) => {
+                    println!(
+                        "DEVICE {} {} {}",
+                        d.path.unwrap_or("".to_string()),
+                        d.driver.unwrap_or("".to_string()),
+                        d.activated.unwrap_or("".to_string()),
+                    );
+                }
+                ResponseData::Tpv(t) => {
+
+                    let mode = t.mode.to_string();
+                    latitude = t.lat.unwrap_or(0.0);
+                    longitude = t.lon.unwrap_or(0.0);
+                    altitude = t.alt.unwrap_or(0.0);
+                    track = t.track.unwrap_or(0.0);
+                    speed = t.speed.unwrap_or(0.0);
+
+                    let status = messages::gps_status(nav_sat_status::STATUS_FIX, nav_sat_status::SERVICE_GPS as u16); // Service is unknown currently.
+                    let nav_fix = messages::gps_fix(
+                        header, 
+                        status, 
+                        latitude, 
+                        longitude, 
+                        altitude as f64, 
+                        [-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], 
+                        nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
+                    );
+
+                    let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
+                    publisher.put(encoded).res().unwrap();
+
+                }
+                ResponseData::Sky(sky) => {
+                    let sats = sky.satellites.map_or_else(
+                        || "(none)".to_owned(),
+                        |sats| {
+                            sats.iter()
+                                .filter(|sat| sat.used)
+                                .map(|sat| sat.prn.to_string())
+                                .join(",")
+                        },
+                    );
+                    println!(
+                        "Sky xdop {:4.2} ydop {:4.2} vdop {:4.2}, satellites {}",
+                        sky.xdop.unwrap_or(0.0),
+                        sky.ydop.unwrap_or(0.0),
+                        sky.vdop.unwrap_or(0.0),
+                        sats
+                    );
+                }
+                ResponseData::Pps(p) => {
+                    println!(
+                        "PPS {} real: {} s {} ns clock: {} s {} ns precision: {}",
+                        p.device, p.real_sec, p.real_nsec, p.clock_sec, p.clock_nsec, p.precision,
+                    );
+                }
+                ResponseData::Gst(g) => {
+                    println!(
+                        "GST {} time: {} rms: {} major: {} m minor: {} m orient: {}° lat: {} m lon: {} m alt: {} m",
+                        g.device.unwrap_or("".to_string()), g.time.unwrap_or("".to_string()),
+                        g.rms.unwrap_or(0.), g.major.unwrap_or(0.),
+                        g.minor.unwrap_or(0.), g.orient.unwrap_or(0.),
+                        g.lat.unwrap_or(0.), g.lon.unwrap_or(0.), g.alt.unwrap_or(0.),
+                    );
+                }
+            }
         }
-        return Ok(());
+
     } else {
-        let subscriber = session.declare_subscriber(&args.topic).res().await.unwrap();
-        while let Ok(sample) = subscriber.recv_async().await {
-            let decoded = cdr::deserialize_from::<_, NavSatFix, _>(sample.value.payload.reader(), Infinite).unwrap();
-            println!("GPS latitude={}, longitude={}, altitude={}", decoded.latitude, decoded.longitude, decoded.altitude);
-        }
-        return Ok(());
+        panic!("Couldn't connect to gpsd...");
     }
+
 }

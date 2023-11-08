@@ -13,8 +13,9 @@ lto = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = {version = "1.12.0", features = ["attributes"] }
 clap = { version = "4.4.6", features = ["derive"] }
 zenoh = "0.10.0-rc"
 zenoh-ros-type = { git = "https://github.com/evshary/zenoh-ros-type", branch = "main" }
 cdr = "0.2.4"
+gpsd_proto = "1.0.0"
+itertools = "0.11.0"
