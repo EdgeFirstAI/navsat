@@ -57,7 +57,15 @@ fn main() -> Result<(), GpsdError> {
             let header = messages:: header(&frame);
             sleep(Duration::from_millis(50));
 
-            let msg = get_data(&mut reader)?;
+            let msg ;//= get_data(&mut reader)?;
+            match get_data(&mut reader) {
+                Ok(m) => msg=m,
+                Err(e) => {
+                    println!("{}", e);
+                    continue;
+                }
+            }
+
             match msg {
                 ResponseData::Device(d) => {
                     println!(
