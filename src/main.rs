@@ -51,8 +51,10 @@ fn main() -> Result<(), GpsdError> {
         let mut writer = io::BufWriter::new(&stream);
         handshake(&mut reader, &mut writer)?;
 
+        let frame = String::from("GPSMap");
+        println!("Publish GPS on '{}' for '{}')...", &args.topic, frame);
+
         loop {
-            let frame = String::from("GPSMap");
             // Build the IMU message type.
             let header = messages:: header(&frame);
             sleep(Duration::from_millis(50));
@@ -79,7 +81,7 @@ fn main() -> Result<(), GpsdError> {
                     //let mode = t.mode.to_string();
                     //let track = t.track.unwrap_or(0.0);
                     //let speed = t.speed.unwrap_or(0.0);
-                    println!("Publish GPS on '{}' for '{}')...", &args.topic, frame);
+                    
                     let status = messages::gps_status(nav_sat_status::STATUS_FIX, nav_sat_status::SERVICE_GPS as u16); // Service is unknown currently.
                     let nav_fix = messages::gps_fix(
                         header, 
@@ -104,13 +106,13 @@ fn main() -> Result<(), GpsdError> {
                                 .join(",")
                         },
                     );
-                    println!(
-                        "Sky xdop {:4.2} ydop {:4.2} vdop {:4.2}, satellites {}",
-                        sky.xdop.unwrap_or(0.0),
-                        sky.ydop.unwrap_or(0.0),
-                        sky.vdop.unwrap_or(0.0),
-                        sats
-                    );
+                    // println!(
+                    //     "Sky xdop {:4.2} ydop {:4.2} vdop {:4.2}, satellites {}",
+                    //     sky.xdop.unwrap_or(0.0),
+                    //     sky.ydop.unwrap_or(0.0),
+                    //     sky.vdop.unwrap_or(0.0),
+                    //     sats
+                    // );
                 }
                 ResponseData::Pps(p) => {
                     println!(
@@ -127,7 +129,6 @@ fn main() -> Result<(), GpsdError> {
                         g.lat.unwrap_or(0.), g.lon.unwrap_or(0.), g.alt.unwrap_or(0.),
                     );
 
-                    println!("Publish GPS on '{}' for '{}')...", &args.topic, frame);
                     let status = messages::gps_status(nav_sat_status::STATUS_FIX, nav_sat_status::SERVICE_GPS as u16); // Service is unknown currently.
                     let nav_fix = messages::gps_fix(
                         header, 
