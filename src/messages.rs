@@ -2,17 +2,13 @@ use zenoh_ros_type::common_interfaces::sensor_msgs::NavSatStatus;
 use zenoh_ros_type::common_interfaces::sensor_msgs::NavSatFix;
 use zenoh_ros_type::rcl_interfaces::builtin_interfaces::Time;
 use zenoh_ros_type::common_interfaces::std_msgs::Header;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
-pub fn header(frame_id: &str) -> Header {
-    let time_now = SystemTime::now();
-    let time_now = time_now
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
+pub fn header(frame_id: &str, start_time: Instant) -> Header {
     Header {
         stamp: Time {
-                sec: time_now.as_secs() as i32,
-                nanosec: time_now.subsec_nanos() as u32,
+                sec: start_time.elapsed().as_secs() as i32,
+                nanosec: start_time.elapsed().subsec_nanos() as u32,
             },
         frame_id: String::from(frame_id),
     }

@@ -6,6 +6,7 @@ use cdr::{CdrLe, Infinite};
 use itertools::Itertools;
 use std::net::TcpStream;
 use std::time::Duration;
+use std::time::Instant;
 use std::thread::sleep;
 use clap::Parser;
 use std::io;
@@ -20,7 +21,7 @@ struct Args {
     #[arg(short='m', long="mode", default_value = "peer")]
     mode: String,
 
-    /// connect to endpoint.
+    /// connect to Zenoh endpoint.
     #[arg(short='e', long="endpoint")]
     endpoint: Vec<String>,
 
@@ -38,6 +39,8 @@ struct Args {
 }
 
 fn main() -> Result<(), GpsdError> {
+    let start_time = Instant::now();
+
     let args = Args::parse();
 
     // Start a Zenoh connection at the endpoint.
@@ -65,7 +68,7 @@ fn main() -> Result<(), GpsdError> {
 
         loop {
             // Build the IMU message type.
-            let header = messages:: header(&frame);
+            let header = messages:: header(&frame, start_time);
             sleep(Duration::from_millis(50));
 
             let msg ;//= get_data(&mut reader)?;
