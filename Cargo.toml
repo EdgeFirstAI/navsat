@@ -1,7 +1,7 @@
 [package]
-name = "maivin-gnss"
-description = "Maivin camera gps publishing service using Zenoh"
-repository = "https://bitbucket.org/au-zone/maivin-gnss/src"
+name = "navsat"
+description = "Maivin NavSat publishing service using Zenoh"
+repository = "https://bitbucket.org/au-zone/maivin-navsat"
 license = "CLOSED"
 version = "0.1.0"
 edition = "2021"
@@ -15,7 +15,7 @@ lto = true
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
 zenoh = "0.10.0-rc"
-zenoh-ros-type = { git = "https://github.com/evshary/zenoh-ros-type", branch = "main" }
+zenoh-ros-type = { git = "https://github.com/MaivinAI/zenoh-ros-type" }
 cdr = "0.2.4"
 gpsd_proto = "1.0.0"
 itertools = "0.11.0"

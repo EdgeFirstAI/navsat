@@ -1,15 +1,15 @@
-use zenoh_ros_type::common_interfaces::sensor_msgs::nav_sat_status;
-use zenoh_ros_type::common_interfaces::sensor_msgs::nav_sat_fix;
-use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
-use zenoh::{prelude::sync::*, publication::CongestionControl};
 use cdr::{CdrLe, Infinite};
-use itertools::Itertools;
-use std::net::TcpStream;
-use std::time::Duration;
-use std::time::Instant;
-use std::thread::sleep;
 use clap::Parser;
-use std::io;
+use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
+use itertools::Itertools;
+use std::{
+    io,
+    net::TcpStream,
+    thread::sleep,
+    time::{Duration, Instant},
+};
+use zenoh::{prelude::sync::*, publication::CongestionControl};
+use zenoh_ros_type::common_interfaces::sensor_msgs::{nav_sat_fix, nav_sat_status};
 
 mod connection;
 mod messages;
@@ -18,19 +18,19 @@ mod messages;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// zenoh connection mode.
-    #[arg(short='m', long="mode", default_value = "peer")]
+    #[arg(short = 'm', long = "mode", default_value = "peer")]
     mode: String,
 
     /// connect to Zenoh endpoint.
-    #[arg(short='e', long="endpoint")]
+    #[arg(short = 'e', long = "endpoint")]
     endpoint: Vec<String>,
 
     /// connect to GPS endpoint
-    #[arg(short='g', long="gps-endpoint", default_value="127.0.0.1:2947")]
+    #[arg(short = 'g', long = "gps-endpoint", default_value = "127.0.0.1:2947")]
     gps_endpoint: String,
 
     /// ros topic.
-    #[arg(short='t', long="topic", default_value = "rt/gps")]
+    #[arg(short = 't', long = "topic", default_value = "rt/gps")]
     topic: String,
 
     /// Enable the verbose output.
@@ -50,7 +50,7 @@ fn main() -> Result<(), GpsdError> {
     macro_rules! log {
         ($( $args:expr ),*) => { if args.verbose {println!( $( $args ),* );} }
     }
-    
+
     // Publish messages.
     let publisher = session
         .declare_publisher(args.topic.clone())
@@ -68,12 +68,12 @@ fn main() -> Result<(), GpsdError> {
 
         loop {
             // Build the IMU message type.
-            let header = messages:: header(&frame, start_time);
+            let header = messages::header(&frame, start_time);
             sleep(Duration::from_millis(50));
 
-            let msg ;//= get_data(&mut reader)?;
+            let msg; //= get_data(&mut reader)?;
             match get_data(&mut reader) {
-                Ok(m) => msg=m,
+                Ok(m) => msg = m,
                 Err(e) => {
                     println!("{}", e);
                     continue;
@@ -99,16 +99,19 @@ fn main() -> Result<(), GpsdError> {
                         t.track.unwrap_or(0.0),
                         t.speed.unwrap_or(0.0)
                     );
-                    
-                    let status = messages::gps_status(nav_sat_status::STATUS_FIX, nav_sat_status::SERVICE_GPS as u16); // Service is unknown currently.
+
+                    let status = messages::gps_status(
+                        nav_sat_status::STATUS_FIX,
+                        nav_sat_status::SERVICE_GPS as u16,
+                    ); // Service is unknown currently.
                     let nav_fix = messages::gps_fix(
-                        header, 
-                        status, 
-                        t.lat.unwrap_or(0.0), 
-                        t.lon.unwrap_or(0.0), 
-                        t.alt.unwrap_or(0.0) as f64, 
-                        [-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], 
-                        nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
+                        header,
+                        status,
+                        t.lat.unwrap_or(0.0),
+                        t.lon.unwrap_or(0.0),
+                        t.alt.unwrap_or(0.0) as f64,
+                        [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
                     );
 
                     let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
@@ -135,7 +138,12 @@ fn main() -> Result<(), GpsdError> {
                 ResponseData::Pps(p) => {
                     log!(
                         "PPS {} real: {} s {} ns clock: {} s {} ns precision: {}",
-                        p.device, p.real_sec, p.real_nsec, p.clock_sec, p.clock_nsec, p.precision
+                        p.device,
+                        p.real_sec,
+                        p.real_nsec,
+                        p.clock_sec,
+                        p.clock_nsec,
+                        p.precision
                     );
                 }
                 ResponseData::Gst(g) => {
@@ -147,15 +155,18 @@ fn main() -> Result<(), GpsdError> {
                         g.lat.unwrap_or(0.), g.lon.unwrap_or(0.), g.alt.unwrap_or(0.)
                     );
 
-                    let status = messages::gps_status(nav_sat_status::STATUS_FIX, nav_sat_status::SERVICE_GPS as u16); // Service is unknown currently.
+                    let status = messages::gps_status(
+                        nav_sat_status::STATUS_FIX,
+                        nav_sat_status::SERVICE_GPS as u16,
+                    ); // Service is unknown currently.
                     let nav_fix = messages::gps_fix(
-                        header, 
-                        status, 
-                        g.lat.unwrap_or(0.) as f64, 
-                        g.lon.unwrap_or(0.) as f64, 
-                        g.alt.unwrap_or(0.) as f64, 
-                        [-1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0], 
-                        nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
+                        header,
+                        status,
+                        g.lat.unwrap_or(0.) as f64,
+                        g.lon.unwrap_or(0.) as f64,
+                        g.alt.unwrap_or(0.) as f64,
+                        [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
                     );
 
                     let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
@@ -163,9 +174,7 @@ fn main() -> Result<(), GpsdError> {
                 }
             }
         }
-
     } else {
         panic!("Couldn't connect to gpsd...");
     }
-
 }
