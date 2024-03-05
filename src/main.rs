@@ -5,10 +5,11 @@ use itertools::Itertools;
 use std::{
     io,
     net::TcpStream,
+    str::FromStr,
     thread::sleep,
     time::{Duration, Instant},
 };
-use zenoh::{prelude::sync::*, publication::CongestionControl};
+use zenoh::prelude::sync::*;
 use zenoh_ros_type::common_interfaces::sensor_msgs::{nav_sat_fix, nav_sat_status};
 
 mod connection;
@@ -43,20 +44,17 @@ fn main() -> Result<(), GpsdError> {
 
     let args = Args::parse();
 
-    // Start a Zenoh connection at the endpoint.
-    let session = connection::start_session(&args.mode, &args.endpoint).unwrap();
+    let mut config = Config::default();
+
+    let mode = WhatAmI::from_str(&args.mode).unwrap();
+    config.set_mode(Some(mode)).unwrap();
+
+    let session = zenoh::open(config).res_sync().unwrap();
 
     // Publish messages.
     macro_rules! log {
         ($( $args:expr ),*) => { if args.verbose {println!( $( $args ),* );} }
     }
-
-    // Publish messages.
-    let publisher = session
-        .declare_publisher(args.topic.clone())
-        .congestion_control(CongestionControl::Block)
-        .res()
-        .unwrap();
 
     if let Ok(stream) = TcpStream::connect(&args.gps_endpoint) {
         let mut reader = io::BufReader::new(&stream);
@@ -115,7 +113,14 @@ fn main() -> Result<(), GpsdError> {
                     );
 
                     let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
-                    publisher.put(encoded).res().unwrap();
+                    session
+                        .put(&args.topic, encoded)
+                        .encoding(Encoding::WithSuffix(
+                            KnownEncoding::AppOctetStream,
+                            "sensor_msgs/msg/NavSatFix".into(),
+                        ))
+                        .res()
+                        .unwrap();
                 }
                 ResponseData::Sky(sky) => {
                     let sats = sky.satellites.map_or_else(
@@ -170,7 +175,14 @@ fn main() -> Result<(), GpsdError> {
                     );
 
                     let encoded = cdr::serialize::<_, _, CdrLe>(&nav_fix, Infinite).unwrap();
-                    publisher.put(encoded).res().unwrap();
+                    session
+                        .put(&args.topic, encoded)
+                        .encoding(Encoding::WithSuffix(
+                            KnownEncoding::AppOctetStream,
+                            "sensor_msgs/msg/NavSatFix".into(),
+                        ))
+                        .res()
+                        .unwrap();
                 }
             }
         }
