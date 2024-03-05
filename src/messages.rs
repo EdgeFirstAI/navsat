@@ -11,7 +11,7 @@ pub fn header(frame_id: &str, start_time: Instant) -> Header {
     Header {
         stamp: Time {
             sec: start_time.elapsed().as_secs() as i32,
-            nanosec: start_time.elapsed().subsec_nanos() as u32,
+            nanosec: start_time.elapsed().subsec_nanos(),
         },
         frame_id: String::from(frame_id),
     }
