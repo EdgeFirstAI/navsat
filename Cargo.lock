@@ -1146,9 +1146,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
 dependencies = [
  "either",
 ]
@@ -1289,6 +1289,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "maivin-navsat"
+version = "0.0.0"
+dependencies = [
+ "cdr",
+ "clap 4.4.7",
+ "gpsd_proto",
+ "itertools",
+ "zenoh",
+ "zenoh-ros-type",
+]
+
+[[package]]
 name = "memchr"
 version = "2.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1321,18 +1333,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
 dependencies = [
  "getrandom",
-]
-
-[[package]]
-name = "navsat"
-version = "0.1.0"
-dependencies = [
- "cdr",
- "clap 4.4.7",
- "gpsd_proto",
- "itertools",
- "zenoh",
- "zenoh-ros-type",
 ]
 
 [[package]]
