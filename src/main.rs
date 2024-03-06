@@ -12,19 +12,22 @@ use std::{
 use zenoh::prelude::sync::*;
 use zenoh_ros_type::common_interfaces::sensor_msgs::{nav_sat_fix, nav_sat_status};
 
-mod connection;
 mod messages;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// zenoh connection mode.
-    #[arg(short = 'm', long = "mode", default_value = "peer")]
+    #[arg(short = 'm', long = "mode", default_value = "client")]
     mode: String,
 
     /// connect to Zenoh endpoint.
-    #[arg(short = 'e', long = "endpoint")]
-    endpoint: Vec<String>,
+    #[arg(short = 'c', long = "connect", default_value = "tcp/127.0.0.1:7447")]
+    connect: Vec<String>,
+
+    /// list to Zenoh endpoint.
+    #[arg(short = 'l', long = "listen")]
+    listen: Vec<String>,
 
     /// connect to GPS endpoint
     #[arg(short = 'g', long = "gps-endpoint", default_value = "127.0.0.1:2947")]
@@ -48,8 +51,11 @@ fn main() -> Result<(), GpsdError> {
 
     let mode = WhatAmI::from_str(&args.mode).unwrap();
     config.set_mode(Some(mode)).unwrap();
-
-    let session = zenoh::open(config).res_sync().unwrap();
+    config.connect.endpoints = args.connect.iter().map(|v| v.parse().unwrap()).collect();
+    config.listen.endpoints = args.listen.iter().map(|v| v.parse().unwrap()).collect();
+    let _ = config.scouting.multicast.set_enabled(Some(false));
+    let _ = config.scouting.gossip.set_enabled(Some(false));
+    let session = zenoh::open(config.clone()).res_sync().unwrap();
 
     // Publish messages.
     macro_rules! log {
@@ -69,14 +75,14 @@ fn main() -> Result<(), GpsdError> {
             let header = messages::header(&frame, start_time);
             sleep(Duration::from_millis(50));
 
-            let msg; //= get_data(&mut reader)?;
-            match get_data(&mut reader) {
-                Ok(m) => msg = m,
+            //= get_data(&mut reader)?;
+            let msg = match get_data(&mut reader) {
+                Ok(m) => m,
                 Err(e) => {
                     println!("{}", e);
                     continue;
                 }
-            }
+            };
 
             match msg {
                 ResponseData::Device(d) => {
