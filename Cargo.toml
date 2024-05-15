@@ -9,11 +9,21 @@ edition = "2021"
 [profile.release]
 opt-level = 3
 lto = true
+strip = true
+debug = false
+
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = true
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
 zenoh = "0.10.0-rc"
-zenoh-ros-type = { git = "https://github.com/MaivinAI/zenoh-ros-type" }
+edgefirst-schemas = "1.2.1"
 cdr = "0.2.4"
 gpsd_proto = "1.0.0"
 itertools = "0.12.1"
+libc = "0.2.154"
