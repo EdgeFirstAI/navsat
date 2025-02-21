@@ -17,13 +17,39 @@ inherits = "release"
 strip = false
 debug = true
 
+[features]
+default = ["tracy"]
+tracy = ["tracing-tracy/enable", "tracy-client/enable"]
+profiling = [
+    "tracing-tracy/sampling",
+    "tracing-tracy/system-tracing",
+    "tracy-client/sampling",
+    "tracy-client/system-tracing",
+]
+
 [dependencies]
 cdr = "0.2.4"
-clap = { version = "4.5.30", features = ["derive"] }
+clap = { version = "4.5.30", features = ["derive", "env"] }
 edgefirst-schemas = "1.2.4"
-env_logger = "0.11.6"
 gpsd_proto = "1.0.0"
 itertools = "0.14.0"
 libc = "0.2.169"
 log = "0.4.25"
-zenoh = "0.10.0-rc"
+serde_json = "1.0.138"
+tracing = "0.1.30"
+tracing-journald = "0.3.1"
+tracing-log = "0.2.0"
+tracing-subscriber = "0.3.19"
+tracing-tracy = { version = "0.11.4", default-features = false, features = [
+    "manual-lifetime",
+    "broadcast",
+    "ondemand",
+    "fibers",
+] }
+tracy-client = { version = "0.18.0", default-features = false, features = [
+    "manual-lifetime",
+    "broadcast",
+    "ondemand",
+    "fibers",
+] }
+zenoh = "1.2.1"
