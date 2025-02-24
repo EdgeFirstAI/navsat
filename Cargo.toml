@@ -29,12 +29,12 @@ profiling = [
 
 [dependencies]
 cdr = "0.2.4"
-clap = { version = "4.5.30", features = ["derive", "env"] }
+clap = { version = "4.5.31", features = ["derive", "env"] }
 edgefirst-schemas = "1.2.4"
 gpsd_proto = "1.0.0"
 itertools = "0.14.0"
-libc = "0.2.169"
-log = "0.4.25"
+libc = "0.2.170"
+log = "0.4.26"
 serde_json = "1.0.138"
 tracing = "0.1.30"
 tracing-journald = "0.3.1"
