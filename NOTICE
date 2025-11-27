@@ -1,0 +1,26 @@
+Maivin NavSat
+Copyright 2025 Au-Zone Technologies Inc.
+
+This product includes software developed at Au-Zone Technologies Inc.
+(https://www.au-zone.com/)
+
+This software contains the following first-level dependencies:
+
+- cdr 0.2.4
+- clap 4.5.31 (derive, env features)
+- edgefirst-schemas 1.2.4
+- gpsd_proto 1.0.0
+- itertools 0.14.0
+- libc 0.2.170
+- log 0.4.26
+- serde_json 1.0.138
+- tracing 0.1.30
+- tracing-journald 0.3.1
+- tracing-log 0.2.0
+- tracing-subscriber 0.3.19
+- tracing-tracy 0.11.4 (manual-lifetime, broadcast, ondemand, fibers features)
+- tracy-client 0.18.0 (manual-lifetime, broadcast, ondemand, fibers features)
+- zenoh 1.2.1
+
+For complete dependency information and transitive dependencies,
+see the SBOM file: sbom.json
