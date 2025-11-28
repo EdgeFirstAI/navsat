@@ -103,23 +103,27 @@ jobs:
           restore-keys: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-build-
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.platform.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          if [ "${{ matrix.platform.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          fi
+          cargo build --release --target ${{ matrix.platform.target }} --bin edgefirst-navsat
 
       - name: Strip binary
         run: |
+          # Debug: list release dir so missing-artifact failures are easier to diagnose
+          ls -la target/${{ matrix.platform.target }}/release || true
           if [ "${{ matrix.platform.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            aarch64-linux-gnu-strip target/${{ matrix.platform.target }}/release/edgefirst-camera
+            aarch64-linux-gnu-strip target/${{ matrix.platform.target }}/release/edgefirst-navsat
           else
-            strip target/${{ matrix.platform.target }}/release/edgefirst-camera
+            strip target/${{ matrix.platform.target }}/release/edgefirst-navsat
           fi
 
       - name: Create package
         run: |
           mkdir -p packages
-          cp target/${{ matrix.platform.target }}/release/edgefirst-camera \
-             packages/edgefirst-camera-${{ matrix.platform.name }}
+          cp target/${{ matrix.platform.target }}/release/edgefirst-navsat \
+             packages/edgefirst-navsat-${{ matrix.platform.name }}
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
