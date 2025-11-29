@@ -55,7 +55,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this pr
 
 Copyright 2025 Au-Zone Technologies Inc.
 
-Licensed under the Apache License, Version 2.0. See [LICENSE.txt](LICENSE.txt) for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
 ## Security
 

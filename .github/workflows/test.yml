@@ -1,13 +1,12 @@
 # GitHub Actions workflow for testing and code quality
 #
 # This workflow runs tests, performs static analysis, and collects coverage data
-# for the EdgeFirst Fusion project.
+# for the Maivin NavSat project.
 #
 # Action Versions (verified November 2025):
 # - actions/checkout@v4 (latest)
 # - dtolnay/rust-toolchain@stable (latest)
 # - actions/upload-artifact@v4 (latest)
-# - codecov/codecov-action@v3 (latest)
 
 name: Test
 
@@ -69,22 +68,12 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Test and Coverage (${{ matrix.platform.name }})
-    runs-on: ${{ matrix.platform.runner }}
+    name: Unit Tests
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       checks: write
       pull-requests: write
-    strategy:
-      matrix:
-        platform:
-          - name: x86_64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - name: aarch64
-            runner: ubuntu-22.04-arm-private
-            target: aarch64-unknown-linux-gnu
-      fail-fast: false
 
     steps:
       - name: Checkout code
@@ -115,36 +104,46 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-test-
 
       - name: Run unit tests
-        run: cargo test --lib --workspace
+        run: cargo test --workspace
 
       - name: Run doc tests
         run: cargo test --doc --workspace
 
-      # Note: Integration tests require hardware (DMA buffers, G2D, sensors)
-      # and are skipped in CI. Run on target hardware with: cargo test --test '*'
-
       - name: Generate coverage
         run: |
-          # Only generate coverage for unit tests (--lib) and doc tests (--doc)
-          # Integration tests require hardware and are excluded
-          cargo llvm-cov --lib --workspace --cobertura --output-path coverage.xml
+          cargo llvm-cov --workspace --cobertura --output-path coverage.xml
           cargo llvm-cov --doc --workspace --cobertura --output-path coverage-doc.xml || true
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: coverage.xml
-          flags: ${{ matrix.platform.name }}
-          fail_ci_if_error: false
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.platform.name }}
+          name: test-results-unit
           path: |
             coverage.xml
           retention-days: 30
+
+  # TODO: Enable when raivin runner is ready
+  # hardware-test:
+  #   name: Hardware Tests (raivin)
+  #   runs-on: [self-hosted, raivin]
+  #   needs: [format, clippy, test]
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Run integration tests with GPSD
+  #       run: |
+  #         # Run tests that require real GPS hardware
+  #         cargo test --workspace -- --ignored 2>&1 || true
+  #
+  #     - name: Run application smoke test
+  #       run: |
+  #         # Build and verify the application starts correctly
+  #         cargo build --release
+  #         timeout 10 ./target/release/maivin-navsat --help
 
   sonarcloud:
     name: SonarCloud Analysis
@@ -167,7 +166,7 @@ jobs:
 
       - name: Generate coverage for SonarCloud
         run: |
-          cargo llvm-cov --lib --workspace --cobertura --output-path target/rust-coverage.xml || true
+          cargo llvm-cov --workspace --cobertura --output-path target/rust-coverage.xml || true
 
       - name: Set up Python
         uses: actions/setup-python@v5

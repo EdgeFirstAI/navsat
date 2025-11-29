@@ -1,20 +1,13 @@
 // Copyright 2025 Au-Zone Technologies Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-mod args;
-
-use args::Args;
 use cdr::{CdrLe, Infinite};
 use clap::Parser;
-use edgefirst_schemas::{
-    builtin_interfaces,
-    sensor_msgs::{nav_sat_fix, nav_sat_status, NavSatFix, NavSatStatus},
-    std_msgs::Header,
-};
-use gpsd_proto::{get_data, handshake, GpsdError, ResponseData, Tpv};
+use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
+use maivin_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
 use std::{
-    io::{self, Error},
+    io::{self},
     net::TcpStream,
 };
 use tracing::instrument;
@@ -75,13 +68,13 @@ fn main() -> Result<(), GpsdError> {
         match msg {
             ResponseData::Device(device) => handle_device(device),
             ResponseData::Tpv(tpv) => {
-                handle_tpv(session.clone(), args.topic.clone(), tpv);
+                handle_tpv(&session, &args.topic, &tpv);
                 args.tracy.then(|| secondary_frame_mark!("tpv"));
             }
             ResponseData::Sky(sky) => handle_sky(sky),
             ResponseData::Pps(pps) => handle_pps(pps),
             ResponseData::Gst(gst) => {
-                handle_gst(session.clone(), args.topic.clone(), gst);
+                handle_gst(&session, &args.topic, &gst);
                 args.tracy.then(|| secondary_frame_mark!("gst"));
             }
         }
@@ -103,69 +96,43 @@ fn handle_pps(pps: gpsd_proto::Pps) {
 }
 
 #[instrument(skip_all)]
-fn handle_tpv(session: Session, topic: String, tpv: Tpv) {
+fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     debug!("{:?}", tpv);
 
-    let msg = NavSatFix {
-        header: Header {
-            stamp: timestamp().unwrap(),
-            frame_id: "".to_owned(),
-        },
-        status: NavSatStatus {
-            status: nav_sat_status::STATUS_FIX,
-            service: nav_sat_status::SERVICE_GPS as u16,
-        },
-        latitude: tpv.lat.unwrap_or(0.0),
-        longitude: tpv.lon.unwrap_or(0.0),
-        altitude: tpv.alt.unwrap_or(0.0) as f64,
-        position_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        position_covariance_type: nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
+    let stamp = match timestamp() {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("Failed to get timestamp: {}", e);
+            return;
+        }
     };
 
+    let msg = create_navsat_fix_from_tpv(tpv, stamp);
     let msg = ZBytes::from(cdr::serialize::<_, _, CdrLe>(&msg, Infinite).unwrap());
     let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
 
-    session.put(topic, msg).encoding(enc).wait().unwrap();
+    if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
+        warn!("Failed to publish TPV message: {}", e);
+    }
 }
 
 #[instrument(skip_all)]
-fn handle_gst(session: Session, topic: String, gst: gpsd_proto::Gst) {
+fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     debug!("{:?}", gst);
 
-    let msg = NavSatFix {
-        header: Header {
-            stamp: timestamp().unwrap(),
-            frame_id: "".to_owned(),
-        },
-        status: NavSatStatus {
-            status: nav_sat_status::STATUS_FIX,
-            service: nav_sat_status::SERVICE_GPS as u16,
-        },
-        latitude: gst.lat.unwrap_or(0.0) as f64,
-        longitude: gst.lon.unwrap_or(0.0) as f64,
-        altitude: gst.alt.unwrap_or(0.0) as f64,
-        position_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        position_covariance_type: nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
+    let stamp = match timestamp() {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("Failed to get timestamp: {}", e);
+            return;
+        }
     };
 
+    let msg = create_navsat_fix_from_gst(gst, stamp);
     let msg = ZBytes::from(cdr::serialize::<_, _, CdrLe>(&msg, Infinite).unwrap());
     let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
 
-    session.put(topic, msg).encoding(enc).wait().unwrap();
-}
-
-fn timestamp() -> Result<builtin_interfaces::Time, Error> {
-    let mut tp = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    let err = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut tp) };
-    if err != 0 {
-        return Err(Error::last_os_error());
+    if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
+        warn!("Failed to publish GST message: {}", e);
     }
-
-    Ok(builtin_interfaces::Time {
-        sec: tp.tv_sec as i32,
-        nanosec: tp.tv_nsec as u32,
-    })
 }
