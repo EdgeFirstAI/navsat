@@ -3,8 +3,9 @@
 
 //! Maivin NavSat Library
 //!
-//! This library provides GPS/GNSS positioning functionality for the EdgeFirst Maivin platform.
-//! It integrates with GPSD for GPS data and publishes NavSatFix messages via Zenoh.
+//! This library provides GPS/GNSS positioning functionality for the EdgeFirst
+//! Maivin platform. It integrates with GPSD for GPS data and publishes
+//! NavSatFix messages via Zenoh.
 
 pub mod args;
 pub mod navsat;

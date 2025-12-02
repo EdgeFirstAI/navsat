@@ -39,7 +39,8 @@ pub fn create_navsat_fix_from_tpv(tpv: &Tpv, stamp: builtin_interfaces::Time) ->
     }
 }
 
-/// Creates a NavSatFix message from GST (GPS Pseudorange Noise Statistics) data.
+/// Creates a NavSatFix message from GST (GPS Pseudorange Noise Statistics)
+/// data.
 ///
 /// # Arguments
 ///
@@ -162,7 +163,10 @@ mod tests {
     fn test_create_navsat_fix_from_tpv_with_data() {
         let tpv = make_tpv(Some(45.4215), Some(-75.6972), Some(100.0));
 
-        let stamp = builtin_interfaces::Time { sec: 123, nanosec: 456 };
+        let stamp = builtin_interfaces::Time {
+            sec: 123,
+            nanosec: 456,
+        };
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
         assert_eq!(msg.latitude, 45.4215);
@@ -172,7 +176,10 @@ mod tests {
         assert_eq!(msg.header.stamp.nanosec, 456);
         assert_eq!(msg.status.status, nav_sat_status::STATUS_FIX);
         assert_eq!(msg.status.service, nav_sat_status::SERVICE_GPS as u16);
-        assert_eq!(msg.position_covariance_type, nav_sat_fix::COVARIANCE_TYPE_UNKNOWN);
+        assert_eq!(
+            msg.position_covariance_type,
+            nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
+        );
     }
 
     #[test]
@@ -191,7 +198,10 @@ mod tests {
     fn test_create_navsat_fix_from_gst_with_data() {
         let gst = make_gst(Some(45.4215), Some(-75.6972), Some(100.0));
 
-        let stamp = builtin_interfaces::Time { sec: 789, nanosec: 101112 };
+        let stamp = builtin_interfaces::Time {
+            sec: 789,
+            nanosec: 101112,
+        };
         let msg = create_navsat_fix_from_gst(&gst, stamp);
 
         assert_eq!(msg.latitude as f32, 45.4215);
@@ -220,7 +230,10 @@ mod tests {
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
         assert_eq!(msg.position_covariance[0], -1.0);
-        assert_eq!(msg.position_covariance_type, nav_sat_fix::COVARIANCE_TYPE_UNKNOWN);
+        assert_eq!(
+            msg.position_covariance_type,
+            nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
+        );
     }
 
     #[test]
