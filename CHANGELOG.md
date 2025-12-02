@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI workflow uses nightly rustfmt for unstable formatting options
+- Updated Makefile with `sbom` target for SPS compliance
+
+### Fixed
+
+- Fixed NOTICE file format to match validation script requirements
+
+## [1.3.0] - 2025-11-29
+
 ### Added
 
 - GitHub Actions CI/CD workflows (build, test, release, sbom)
@@ -15,7 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security policy and vulnerability reporting process
 - Unit tests for NavSatFix message creation and timestamp functions
 - Library target (`src/lib.rs`) for improved testability
-- Hardware test job using `raivin` self-hosted runner
 
 ### Changed
 
@@ -48,8 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Integration with edgefirst-schemas for ROS 2 message types
-- Zenoh client mode support
-- Bitbucket Pipelines for CI/CD
 
 ### Changed
 
@@ -60,6 +68,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Improved error handling in GPSD data loop
+
+## [1.0.2] - 2024-03-07
+
+### Changed
+
+- Zenoh client mode support
+- Disabled multicast scouting by default
+
+### Fixed
+
+- Clippy formatting fixes
+
+## [1.0.1] - 2024-03-05
+
+### Added
+
+- Bitbucket Pipelines for CI/CD
+- Added encoding for message type
+
+### Fixed
+
+- Clippy code fixes
 
 ## [1.0.0] - 2023-11-10
 
@@ -73,7 +103,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.0.0...v1.1.0
+[1.1.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.0.2...v1.1.0
+[1.0.2]: https://github.com/EdgeFirstAI/navsat/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/EdgeFirstAI/navsat/releases/tag/v1.0.0

@@ -15,9 +15,6 @@ RUST_FEATURES ?= --all-features
 # Additional test flags
 TEST_FLAGS ?=
 
-# Virtual environment detection (for Python bindings)
-VENV_ACTIVATE := $(shell if [ -d "venv" ]; then echo "source venv/bin/activate &&"; fi)
-
 # ===========================================================================
 # STANDARD TARGETS
 # ===========================================================================
@@ -27,11 +24,16 @@ help:
 	@echo "Available targets:"
 	@echo "  make format         - Format Rust code with rustfmt"
 	@echo "  make lint           - Run clippy with strict settings"
-	@echo "  make build          - Build with coverage enabled (for testing)"
+	@echo "  make build          - Build the project"
 	@echo "  make test           - Run tests with coverage (nextest + llvm-cov)"
+	@echo "  make sbom           - Generate SBOM and check license policy"
 	@echo "  make verify-version - Verify version consistency"
 	@echo "  make pre-release    - Complete pre-release validation"
 	@echo "  make clean          - Remove build artifacts"
+	@echo ""
+	@echo "Configuration:"
+	@echo "  PROJECT_NAME   = $(PROJECT_NAME)"
+	@echo "  RUST_FEATURES  = $(RUST_FEATURES)"
 
 # Format source code
 .PHONY: format
@@ -47,12 +49,12 @@ lint:
 	cargo clippy --all-targets $(RUST_FEATURES) -- -D warnings
 	@echo "✓ Linting complete"
 
-# Build with coverage enabled (for testing)
+# Build the project
 .PHONY: build
 build:
-	@echo "Building with coverage instrumentation..."
+	@echo "Building project..."
 	cargo build $(RUST_FEATURES)
-	@echo "✓ Build complete (coverage-enabled)"
+	@echo "✓ Build complete"
 
 # Run tests with coverage
 .PHONY: test
@@ -68,14 +70,34 @@ test: build
 		echo "Install with: cargo install cargo-llvm-cov"; \
 		exit 1; \
 	fi
-
-	# Run Rust tests with coverage
 	cargo llvm-cov nextest $(RUST_FEATURES) --workspace \
 		--lcov --output-path target/rust-coverage.lcov \
 		$(TEST_FLAGS)
-
 	@echo "✓ Tests passed with coverage"
 	@echo "Coverage report: target/rust-coverage.lcov"
+
+# Generate SBOM and check license policy
+.PHONY: sbom
+sbom:
+	@echo "Generating SBOM..."
+	@if [ ! -f ".github/scripts/generate_sbom.sh" ]; then \
+		echo "ERROR: .github/scripts/generate_sbom.sh not found"; \
+		exit 1; \
+	fi
+	@bash .github/scripts/generate_sbom.sh
+	@echo "Validating SBOM format..."
+	@if command -v cyclonedx >/dev/null 2>&1; then \
+		cyclonedx validate --input-file sbom.json; \
+	else \
+		echo "Warning: cyclonedx CLI not found, skipping validation"; \
+	fi
+	@echo "Checking license policy compliance..."
+	@python3 .github/scripts/check_license_policy.py sbom.json
+	@if [ -f "NOTICE" ]; then \
+		echo "Validating NOTICE file..."; \
+		python3 .github/scripts/validate_notice.py NOTICE sbom.json || echo "⚠️  NOTICE validation failed - update manually"; \
+	fi
+	@echo "✓ SBOM generated and validated"
 
 # Verify version consistency
 .PHONY: verify-version
@@ -98,7 +120,7 @@ verify-version:
 
 # Pre-release checks
 .PHONY: pre-release
-pre-release: format lint verify-version test
+pre-release: format lint verify-version test sbom
 	@echo "=================================================="
 	@echo "✓ All pre-release checks passed"
 	@echo "=================================================="
@@ -118,4 +140,5 @@ clean:
 	@echo "Cleaning build artifacts..."
 	cargo clean
 	rm -rf target/rust-coverage.lcov test-results.xml
+	rm -f sbom.json source-sbom.json deps-sbom.json *.cdx.json
 	@echo "✓ Clean complete"

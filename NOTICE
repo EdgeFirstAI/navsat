@@ -6,21 +6,21 @@ This product includes software developed at Au-Zone Technologies Inc.
 
 This software contains the following first-level dependencies:
 
-- cdr 0.2.4
-- clap 4.5.53 (derive, env features)
-- edgefirst-schemas 1.4.1
-- gpsd_proto 1.0.0
-- itertools 0.14.0
-- libc 0.2.177
-- log 0.4.28
-- serde_json 1.0.145
-- tracing 0.1.43
-- tracing-journald 0.3.2
-- tracing-log 0.2.0
-- tracing-subscriber 0.3.22
-- tracing-tracy 0.11.4 (manual-lifetime, broadcast, ondemand, fibers features)
-- tracy-client 0.18.3 (manual-lifetime, broadcast, ondemand, fibers features)
-- zenoh 1.6.2
+  * cdr 0.2.4 (MIT)
+  * clap 4.5.53 (MIT OR Apache-2.0)
+  * edgefirst-schemas 1.4.1 (Apache-2.0)
+  * gpsd_proto 1.0.0 (MIT)
+  * itertools 0.14.0 (MIT OR Apache-2.0)
+  * libc 0.2.177 (MIT OR Apache-2.0)
+  * log 0.4.28 (MIT OR Apache-2.0)
+  * serde_json 1.0.145 (MIT OR Apache-2.0)
+  * tracing 0.1.43 (MIT)
+  * tracing-journald 0.3.2 (MIT)
+  * tracing-log 0.2.0 (MIT OR Apache-2.0)
+  * tracing-subscriber 0.3.22 (MIT)
+  * tracing-tracy 0.11.4 (MIT OR Apache-2.0)
+  * tracy-client 0.18.3 (MIT OR Apache-2.0)
+  * zenoh 1.6.2 (EPL-2.0 OR Apache-2.0)
 
 For complete dependency information and transitive dependencies,
 see the SBOM file: sbom.json
