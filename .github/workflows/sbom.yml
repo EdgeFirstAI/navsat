@@ -8,10 +8,7 @@
 # - .github/scripts/check_license_policy.py
 # - .github/scripts/validate_notice.py
 #
-# Action Versions (verified November 2025):
-# - actions/checkout@v4 (latest)
-# - actions/setup-python@v5 (latest)
-# - actions/upload-artifact@v4 (latest)
+# Action Versions (hash-pinned per SPS 11-cicd-pipelines.md):
 
 name: SBOM
 
@@ -22,7 +19,7 @@ on:
     branches: [ main ]
   release:
     types: [published]
-  workflow_call:  # Allow other workflows to call this
+  workflow_call:
 
 jobs:
   generate-sbom:
@@ -31,15 +28,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a  # stable
 
       - name: Install cargo tools
         run: |
@@ -47,7 +39,7 @@ jobs:
           cargo install cargo-license --version 0.7.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: '3.11'
 
@@ -78,7 +70,7 @@ jobs:
         run: python3 .github/scripts/validate_notice.py NOTICE sbom.json
 
       - name: Upload SBOM Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         with:
           name: sbom
           path: sbom.json
