@@ -252,9 +252,11 @@ mod tests {
     mod hardware_tests {
         use super::*;
         use gpsd_proto::{get_data, handshake, Mode, ResponseData};
-        use std::io::{BufReader, BufWriter};
-        use std::net::TcpStream;
-        use std::time::Duration;
+        use std::{
+            io::{BufReader, BufWriter},
+            net::TcpStream,
+            time::Duration,
+        };
 
         /// GPS metrics collected during hardware tests
         #[derive(Debug, Default)]
@@ -283,16 +285,21 @@ mod tests {
                     };
                     println!("Fix Quality: {}", fix_type);
                 }
-                println!("Satellites: {} used / {} visible", self.satellites_used, self.satellites_visible);
-                
-                if let (Some(lat), Some(lon), Some(alt)) = (self.latitude, self.longitude, self.altitude) {
+                println!(
+                    "Satellites: {} used / {} visible",
+                    self.satellites_used, self.satellites_visible
+                );
+
+                if let (Some(lat), Some(lon), Some(alt)) =
+                    (self.latitude, self.longitude, self.altitude)
+                {
                     println!("Position: {:.6}°, {:.6}° @ {:.1}m", lat, lon, alt);
                 }
-                
+
                 if let (Some(h), Some(v), Some(p)) = (self.hdop, self.vdop, self.pdop) {
                     println!("DOP: HDOP={:.2} VDOP={:.2} PDOP={:.2}", h, v, p);
                 }
-                
+
                 if let Some(max_snr) = self.max_snr {
                     println!("SNR: max={:.1} dB", max_snr);
                     if let Some(avg_snr) = self.avg_snr {
@@ -306,7 +313,7 @@ mod tests {
         fn collect_gps_metrics(timeout_secs: u64) -> Result<GpsMetrics, String> {
             let stream = TcpStream::connect("127.0.0.1:2947")
                 .map_err(|e| format!("Failed to connect to GPSD: {}", e))?;
-            
+
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .map_err(|e| format!("Failed to set timeout: {}", e))?;
@@ -331,21 +338,20 @@ mod tests {
                     Ok(ResponseData::Sky(sky)) => {
                         if let Some(sats) = &sky.satellites {
                             metrics.satellites_visible = sats.len();
-                            metrics.satellites_used = sats.iter()
-                                .filter(|s| s.used)
-                                .count();
+                            metrics.satellites_used = sats.iter().filter(|s| s.used).count();
 
-                            let snr_values: Vec<f32> = sats.iter()
-                                .filter_map(|s| s.ss)
-                                .collect();
-                            
+                            let snr_values: Vec<f32> = sats.iter().filter_map(|s| s.ss).collect();
+
                             if !snr_values.is_empty() {
-                                metrics.max_snr = snr_values.iter().copied().max_by(|a, b| a.partial_cmp(b).unwrap());
+                                metrics.max_snr = snr_values
+                                    .iter()
+                                    .copied()
+                                    .max_by(|a, b| a.partial_cmp(b).unwrap());
                                 let sum: f32 = snr_values.iter().sum();
                                 metrics.avg_snr = Some(sum / snr_values.len() as f32);
                             }
                         }
-                        
+
                         // Store DOP values if available
                         if let Some(h) = sky.hdop {
                             metrics.hdop = Some(h);
@@ -394,8 +400,7 @@ mod tests {
         #[test]
         #[ignore = "Requires GPSD daemon and GPS hardware"]
         fn test_gps_fix_quality() {
-            let metrics = collect_gps_metrics(30)
-                .expect("Failed to collect GPS metrics");
+            let metrics = collect_gps_metrics(30).expect("Failed to collect GPS metrics");
 
             metrics.print_summary();
 
@@ -423,7 +428,8 @@ mod tests {
             if let Some(alt) = metrics.altitude {
                 assert!(
                     alt.abs() > 1.0 || alt == 0.0,
-                    "Altitude appears invalid: {}m", alt
+                    "Altitude appears invalid: {}m",
+                    alt
                 );
             }
         }
@@ -432,8 +438,7 @@ mod tests {
         #[test]
         #[ignore = "Requires GPSD daemon and GPS hardware"]
         fn test_gps_signal_quality() {
-            let metrics = collect_gps_metrics(30)
-                .expect("Failed to collect GPS metrics");
+            let metrics = collect_gps_metrics(30).expect("Failed to collect GPS metrics");
 
             metrics.print_summary();
 
@@ -467,8 +472,7 @@ mod tests {
         #[test]
         #[ignore = "Requires GPSD daemon and GPS hardware"]
         fn test_gps_position_reporting() {
-            let metrics = collect_gps_metrics(30)
-                .expect("Failed to collect GPS metrics");
+            let metrics = collect_gps_metrics(30).expect("Failed to collect GPS metrics");
 
             metrics.print_summary();
 
@@ -479,17 +483,11 @@ mod tests {
             };
 
             // Sanity check: coordinates should be valid ranges
-            assert!(
-                lat >= -90.0 && lat <= 90.0,
-                "Invalid latitude: {}", lat
-            );
-            assert!(
-                lon >= -180.0 && lon <= 180.0,
-                "Invalid longitude: {}", lon
-            );
+            assert!((-90.0..=90.0).contains(&lat), "Invalid latitude: {}", lat);
+            assert!((-180.0..=180.0).contains(&lon), "Invalid longitude: {}", lon);
 
             println!("GPS Test Location: {:.6}°, {:.6}°", lat, lon);
-            
+
             if let Some(alt) = metrics.altitude {
                 println!("GPS Test Altitude: {:.1}m", alt);
             }
@@ -501,7 +499,7 @@ mod tests {
         fn test_hardware_timestamp_accuracy() {
             // Test that timestamp() returns monotonic time (time since boot)
             // This is correct for ROS message timing which needs monotonic timestamps
-            
+
             let time1 = timestamp().expect("Failed to get hardware timestamp");
             std::thread::sleep(std::time::Duration::from_millis(100));
             let time2 = timestamp().expect("Failed to get second hardware timestamp");
@@ -521,13 +519,15 @@ mod tests {
             // Verify the elapsed time is approximately 100ms (allow 50-150ms range)
             let elapsed_ms = (nanos2 - nanos1) / 1_000_000;
             assert!(
-                elapsed_ms >= 50 && elapsed_ms <= 150,
+                (50..=150).contains(&elapsed_ms),
                 "Elapsed time {} ms not in expected range [50-150ms]",
                 elapsed_ms
             );
 
-            println!("Monotonic timestamp test: {} -> {} (elapsed: {}ms)", 
-                     nanos1, nanos2, elapsed_ms);
+            println!(
+                "Monotonic timestamp test: {} -> {} (elapsed: {}ms)",
+                nanos1, nanos2, elapsed_ms
+            );
         }
     }
 }
