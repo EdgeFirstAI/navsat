@@ -126,6 +126,15 @@ jobs:
             \( -name "maivin_navsat-*" -o -name "*integration*" \) \
             -exec cp {} target/tests/ \;
 
+      - name: Build instrumented release binary (aarch64 only)
+        if: matrix.platform.name == 'aarch64'
+        run: |
+          # Build release binary with coverage instrumentation for Zenoh integration tests
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo build --release
+          mkdir -p target/release-instrumented
+          cp target/llvm-cov-target/release/maivin-navsat target/release-instrumented/
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         if: always()
@@ -150,6 +159,14 @@ jobs:
         with:
           name: integration-tests-aarch64
           path: target/tests/
+          retention-days: 7
+
+      - name: Upload release binary (aarch64 only)
+        if: matrix.platform.name == 'aarch64'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: release-binary-aarch64
+          path: target/release-instrumented/
           retention-days: 7
 
   hardware-test:
@@ -221,23 +238,20 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          rm -rf build/ coverage/ test-results/ 2>/dev/null || true
+          rm -rf build/ coverage/ test-results/ test-venv/ 2>/dev/null || true
+          find . -name "*.profraw" -delete 2>/dev/null || true
 
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
-      - name: Download aarch64 binary
+      - name: Download release binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
-          name: integration-tests-aarch64
+          name: release-binary-aarch64
           path: build/
 
-      - name: Build release binary with coverage
-        run: |
-          # Build with coverage instrumentation for Zenoh integration test
-          cargo build --release
-          mkdir -p build
-          cp target/release/maivin-navsat build/
+      - name: Make binary executable
+        run: chmod +x build/maivin-navsat
 
       - name: Set up Python test environment
         run: |
@@ -303,7 +317,7 @@ jobs:
   process-hardware-coverage:
     name: Process Hardware Coverage
     needs: [build-and-test, hardware-test, zenoh-integration-test]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-arm
     if: always() && needs.build-and-test.result == 'success'
 
     steps:
@@ -322,51 +336,85 @@ jobs:
           name: rust-llvm-cov-aarch64
           path: target/llvm-cov-target/
 
-      - name: Download profraw files
+      - name: Download hardware test profraw files
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         continue-on-error: true
         with:
           name: coverage-hardware
           path: coverage-hardware/
 
+      - name: Download zenoh test profraw files
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        continue-on-error: true
+        with:
+          name: coverage-zenoh
+          path: coverage-zenoh/
+
       - name: Process coverage
-        if: hashFiles('coverage-hardware/profraw/*.profraw') != ''
         run: |
           TOOLCHAIN_ROOT=$(rustc --print sysroot)
           LLVM_PROFDATA=$(find "$TOOLCHAIN_ROOT" -name "llvm-profdata" | head -1)
           LLVM_COV=$(find "$TOOLCHAIN_ROOT" -name "llvm-cov" | head -1)
 
+          echo "=== Profraw files from hardware tests ==="
+          find coverage-hardware/ -name "*.profraw" 2>/dev/null || echo "No hardware profraw files"
+
+          echo ""
+          echo "=== Profraw files from zenoh tests ==="
+          find coverage-zenoh/ -name "*.profraw" 2>/dev/null || echo "No zenoh profraw files"
+
+          # Collect all profraw files
+          PROFRAW_FILES=$(find coverage-hardware/ coverage-zenoh/ -name "*.profraw" 2>/dev/null | tr '\n' ' ')
+
+          if [ -z "$PROFRAW_FILES" ]; then
+            echo "No profraw files found, skipping coverage processing"
+            exit 0
+          fi
+
           mkdir -p coverage
-          "$LLVM_PROFDATA" merge -sparse \
-            $(find coverage-hardware/profraw -name "*.profraw" 2>/dev/null || echo "") \
-            -o coverage/hardware.profdata 2>/dev/null || echo "No profraw files to merge"
+          echo "Merging profraw files..."
+          "$LLVM_PROFDATA" merge -sparse $PROFRAW_FILES -o coverage/hardware.profdata
 
           if [ -f coverage/hardware.profdata ]; then
+            # Find instrumented objects (test binaries)
             OBJECT_FILES=""
             for obj in $(find target/llvm-cov-target/debug/deps -maxdepth 1 -type f \
-                         ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta"); do
+                         ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta" 2>/dev/null); do
               if file "$obj" | grep -q "ELF"; then
                 OBJECT_FILES="$OBJECT_FILES --object=$obj"
               fi
             done
 
-            "$LLVM_COV" export --format=lcov \
-              --instr-profile=coverage/hardware.profdata \
-              --ignore-filename-regex='/.cargo/registry|/rustc/' \
-              $OBJECT_FILES > coverage/coverage-hardware.lcov 2>/dev/null || echo "No coverage data"
+            # Also include the instrumented release binary
+            if [ -f target/llvm-cov-target/release/maivin-navsat ]; then
+              if file target/llvm-cov-target/release/maivin-navsat | grep -q "ELF"; then
+                OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/release/maivin-navsat"
+              fi
+            fi
+
+            if [ -n "$OBJECT_FILES" ]; then
+              echo "Generating LCOV report..."
+              "$LLVM_COV" export --format=lcov \
+                --instr-profile=coverage/hardware.profdata \
+                --ignore-filename-regex='/.cargo/registry|/rustc/' \
+                $OBJECT_FILES > coverage/coverage-hardware.lcov 2>/dev/null || echo "No coverage data"
+            else
+              echo "No instrumented objects found"
+            fi
           fi
 
       - name: Upload processed coverage
-        if: hashFiles('coverage/coverage-hardware.lcov') != ''
+        if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: coverage-hardware-processed
           path: coverage/coverage-hardware.lcov
           retention-days: 30
+          if-no-files-found: ignore
 
   sonarcloud:
     name: SonarCloud Analysis
-    needs: [build-and-test, hardware-test, process-hardware-coverage]
+    needs: [build-and-test, hardware-test, zenoh-integration-test, process-hardware-coverage]
     runs-on: ubuntu-22.04
     if: |
       always() &&
