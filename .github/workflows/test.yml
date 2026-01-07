@@ -134,8 +134,10 @@ jobs:
         if: matrix.platform.name == 'aarch64'
         run: |
           # Set up coverage environment for building instrumented test binaries
-          # This sets RUSTFLAGS with -C instrument-coverage and CARGO_LLVM_COV_TARGET_DIR
+          # source show-env sets RUSTFLAGS for coverage instrumentation
+          # We must also set CARGO_TARGET_DIR to put binaries in llvm-cov-target/
           source <(cargo llvm-cov show-env --export-prefix)
+          export CARGO_TARGET_DIR=target/llvm-cov-target
 
           # Build test binaries with coverage instrumentation
           # --run-ignored=all ensures binaries for ignored tests are also built
@@ -168,8 +170,11 @@ jobs:
         if: matrix.platform.name == 'aarch64'
         run: |
           # Build release binary with coverage instrumentation for Zenoh integration tests
-          # Environment variables from show-env direct build to llvm-cov-target with instrumentation
+          # source show-env sets RUSTFLAGS for coverage instrumentation
+          # We must also set CARGO_TARGET_DIR to put binaries in llvm-cov-target/
+          # (show-env only sets CARGO_LLVM_COV_TARGET_DIR which plain cargo ignores)
           source <(cargo llvm-cov show-env --export-prefix)
+          export CARGO_TARGET_DIR=target/llvm-cov-target
           cargo build --release
 
           # Verify the instrumented binary was built
@@ -182,6 +187,8 @@ jobs:
             echo "ERROR: Instrumented release binary not found at target/llvm-cov-target/release/edgefirst-navsat"
             echo "Contents of target/llvm-cov-target/:"
             ls -la target/llvm-cov-target/ 2>/dev/null || echo "Directory not found"
+            echo "Contents of target/:"
+            ls -la target/ 2>/dev/null || echo "Directory not found"
             exit 1
           fi
 
