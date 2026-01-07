@@ -1,11 +1,25 @@
 # GitHub Actions workflow for testing and code quality
 #
 # This workflow implements the three-phase pattern for on-target testing with coverage:
-# Phase 1: Build instrumented binaries on ARM runner
+# Phase 1: Build instrumented binaries on ARM runner (ubuntu-22.04-arm)
 # Phase 2: Run tests on real hardware (raivin with GPS)
-# Phase 3: Process coverage data on ARM runner (matching toolchain)
+# Phase 3: Process coverage data on ARM runner (matching toolchain for profraw processing)
+#
+# Coverage Strategy:
+# - Each platform runs tests independently and generates coverage
+# - Coverage artifacts (profraw files) are uploaded from all platforms
+# - Hardware tests generate profraw files via LLVM_PROFILE_FILE environment variable
+# - Dedicated process-hardware-coverage job downloads and merges all coverage reports
+# - Final LCOV reports are sent to SonarCloud for analysis
 #
 # Action Versions (hash-pinned per SPS 11-cicd-pipelines.md):
+# - actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 (v6.0.1)
+# - actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb (v5.0.1)
+# - actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f (v6.0.0)
+# - actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 (v7.0.0)
+# - dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 (master)
+# - taiki-e/install-action@dfcb1ee29051d97c8d0f2d437199570008fd5612 (v2.65.15)
+# - SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 (v7.0.0)
 
 name: Test
 
@@ -119,22 +133,57 @@ jobs:
       - name: Build instrumented test binaries (aarch64 only)
         if: matrix.platform.name == 'aarch64'
         run: |
+          # Set up coverage environment for building instrumented test binaries
+          # This sets RUSTFLAGS with -C instrument-coverage and CARGO_LLVM_COV_TARGET_DIR
           source <(cargo llvm-cov show-env --export-prefix)
+
+          # Build test binaries with coverage instrumentation
+          # --run-ignored=all ensures binaries for ignored tests are also built
           cargo nextest run --workspace --no-run --run-ignored=all
+
+          # Copy instrumented test binaries to target/tests for artifact upload
+          # Only copy binaries that are actual test runners
           mkdir -p target/tests
-          find target/llvm-cov-target/debug/deps/ -maxdepth 1 -type f -executable \
-            \( -name "edgefirst_navsat-*" -o -name "*integration*" \) \
-            -exec cp {} target/tests/ \;
+          find target/llvm-cov-target/debug/deps/ -maxdepth 1 -type f -executable | \
+            while read bin; do
+              # Skip library files and build artifacts
+              if [[ "$(basename "$bin")" =~ \.(so|a|d|rlib)$ ]]; then
+                continue
+              fi
+
+              # Test binaries accept --list, CLI binaries don't
+              if "$bin" --list >/dev/null 2>&1; then
+                cp "$bin" target/tests/
+                echo "  ✓ Copied test binary: $(basename "$bin")"
+              else
+                echo "  ✗ Skipped non-test binary: $(basename "$bin")"
+              fi
+            done
+
+          echo ""
+          echo "Instrumented test binaries ready for hardware testing:"
+          ls -la target/tests/
 
       - name: Build instrumented release binary (aarch64 only)
         if: matrix.platform.name == 'aarch64'
         run: |
           # Build release binary with coverage instrumentation for Zenoh integration tests
-          # Use cargo llvm-cov to ensure binary is built with instrumentation in llvm-cov-target
+          # Environment variables from show-env direct build to llvm-cov-target with instrumentation
           source <(cargo llvm-cov show-env --export-prefix)
-          cargo llvm-cov build --release --no-report
-          mkdir -p target/release-instrumented
-          cp target/llvm-cov-target/release/edgefirst-navsat target/release-instrumented/
+          cargo build --release
+
+          # Verify the instrumented binary was built
+          if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
+            mkdir -p target/release-instrumented
+            cp target/llvm-cov-target/release/edgefirst-navsat target/release-instrumented/
+            echo "✓ Instrumented release binary built: target/llvm-cov-target/release/edgefirst-navsat"
+            ls -lh target/release-instrumented/
+          else
+            echo "ERROR: Instrumented release binary not found at target/llvm-cov-target/release/edgefirst-navsat"
+            echo "Contents of target/llvm-cov-target/:"
+            ls -la target/llvm-cov-target/ 2>/dev/null || echo "Directory not found"
+            exit 1
+          fi
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
@@ -177,8 +226,9 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-hardware')
 
     steps:
-      - name: Clean workspace
+      - name: Clean workspace (self-hosted runner)
         run: |
+          # Self-hosted runners persist state between runs
           rm -rf target/ integration-tests/ coverage/ 2>/dev/null || true
           find . -name "*.profraw" -delete 2>/dev/null || true
 
@@ -192,33 +242,69 @@ jobs:
           path: integration-tests/
 
       - name: Make binaries executable
-        run: chmod +x integration-tests/*
+        run: |
+          # Artifact upload/download doesn't preserve execute permissions
+          chmod +x integration-tests/* 2>/dev/null || true
+          echo "Downloaded test binaries:"
+          ls -la integration-tests/
 
       - name: Check GPSD availability
         run: |
+          echo "=== GPSD Service Status ==="
           if ! systemctl is-active --quiet gpsd; then
             echo "Warning: GPSD not running. Starting GPSD..."
             sudo systemctl start gpsd || true
+          else
+            echo "✓ GPSD is running"
           fi
-          gpspipe -w -n 5 || echo "Warning: No GPS data available"
+          echo ""
+          echo "=== GPS Data Sample ==="
+          gpspipe -w -n 5 2>&1 || echo "Warning: No GPS data available"
 
       - name: Run hardware tests
         run: |
           mkdir -p coverage/profraw coverage/results
+
+          # Set up profraw collection directory
+          # The %p and %m placeholders ensure unique files per process/thread
           export LLVM_PROFILE_FILE="${{ github.workspace }}/coverage/profraw/raivin-%p-%m.profraw"
-          
+
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE"
+          echo ""
+
           TEST_FAILED=0
           for test_bin in integration-tests/*; do
-            if [ -x "$test_bin" ]; then
+            if [ -x "$test_bin" ] && [ -f "$test_bin" ]; then
               test_name=$(basename "$test_bin")
+
+              # Skip non-test binaries (test binaries accept --list)
+              if ! "$test_bin" --list >/dev/null 2>&1; then
+                echo "⏭️  Skipped non-test binary: $test_name"
+                continue
+              fi
+
               echo "=== Running $test_name ==="
+              # --include-ignored runs tests marked with #[ignore] (GPS tests need real hardware)
+              # --test-threads=1 for deterministic execution on hardware
               if ! "$test_bin" --include-ignored --test-threads=1 2>&1 | tee "coverage/results/${test_name}.txt"; then
+                echo "FAILED: $test_name"
                 TEST_FAILED=1
               fi
             fi
           done
-          
-          exit $TEST_FAILED
+
+          echo ""
+          echo "=== Profraw files generated ==="
+          ls -la coverage/profraw/ || echo "No profraw files generated"
+          PROFRAW_COUNT=$(find coverage/profraw/ -name "*.profraw" 2>/dev/null | wc -l)
+          echo "Total profraw files: $PROFRAW_COUNT"
+
+          # Fail the step if any test failed
+          if [ $TEST_FAILED -ne 0 ]; then
+            echo ""
+            echo "ERROR: One or more hardware tests failed!"
+            exit 1
+          fi
 
       - name: Upload coverage
         if: always()
@@ -237,8 +323,9 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-hardware')
 
     steps:
-      - name: Clean workspace
+      - name: Clean workspace (self-hosted runner)
         run: |
+          # Self-hosted runners persist state between runs
           rm -rf build/ coverage/ test-results/ test-venv/ 2>/dev/null || true
           find . -name "*.profraw" -delete 2>/dev/null || true
 
@@ -252,7 +339,10 @@ jobs:
           path: build/
 
       - name: Make binary executable
-        run: chmod +x build/edgefirst-navsat
+        run: |
+          chmod +x build/edgefirst-navsat
+          echo "Downloaded release binary:"
+          ls -la build/
 
       - name: Set up Python test environment
         run: |
@@ -260,43 +350,58 @@ jobs:
           test-venv/bin/pip install --upgrade pip
           test-venv/bin/pip install -r tests/requirements.txt
 
-      - name: Start maivin-navsat service in background
+      - name: Start edgefirst-navsat service in background
         run: |
+          mkdir -p coverage test-results
+
+          # Set up profraw collection for the service
+          # The service will generate coverage data when it exits
           export LLVM_PROFILE_FILE="${{ github.workspace }}/coverage/zenoh-%p-%m.profraw"
-          mkdir -p coverage
-          
-          # Start service in background
-          ./build/edgefirst-navsat --topic rt/gps &
+          echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE"
+
+          # Start service in background with coverage environment
+          LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" ./build/edgefirst-navsat --topic rt/gps &
           NAVSAT_PID=$!
           echo $NAVSAT_PID > navsat.pid
-          
+
           # Wait for service to start
           sleep 5
-          
+
           # Check if still running
           if ! kill -0 $NAVSAT_PID 2>/dev/null; then
             echo "ERROR: edgefirst-navsat failed to start"
             exit 1
           fi
-          
-          echo "edgefirst-navsat service started (PID: $NAVSAT_PID)"
+
+          echo "✓ edgefirst-navsat service started (PID: $NAVSAT_PID)"
 
       - name: Run Python Zenoh integration tests
         run: |
+          mkdir -p test-results
           test-venv/bin/pytest tests/test_zenoh_integration.py \
             -v \
             --junit-xml=test-results/pytest-zenoh.xml \
             --tb=short \
-            -m hardware \
             || TEST_FAILED=$?
-          
-          # Always try to stop service gracefully
+
+          # Always try to stop service gracefully to flush profraw data
+          echo ""
+          echo "Stopping edgefirst-navsat service..."
           if [ -f navsat.pid ]; then
+            # Send SIGTERM for graceful shutdown (allows profraw flush)
             kill $(cat navsat.pid) 2>/dev/null || true
             sleep 2
+            # Force kill if still running
             kill -9 $(cat navsat.pid) 2>/dev/null || true
           fi
-          
+
+          # Show profraw files generated
+          echo ""
+          echo "=== Profraw files generated ==="
+          ls -la coverage/ || echo "No coverage directory"
+          PROFRAW_COUNT=$(find coverage/ -name "*.profraw" 2>/dev/null | wc -l)
+          echo "Total profraw files: $PROFRAW_COUNT"
+
           exit ${TEST_FAILED:-0}
 
       - name: Upload test results
@@ -351,57 +456,146 @@ jobs:
           name: coverage-zenoh
           path: coverage-zenoh/
 
-      - name: Process coverage
+      - name: Process Rust profraw files into coverage report
         run: |
-          TOOLCHAIN_ROOT=$(rustc --print sysroot)
-          LLVM_PROFDATA=$(find "$TOOLCHAIN_ROOT" -name "llvm-profdata" | head -1)
-          LLVM_COV=$(find "$TOOLCHAIN_ROOT" -name "llvm-cov" | head -1)
+          echo "=== Downloaded instrumented objects ==="
+          ls -la target/llvm-cov-target/ 2>/dev/null || echo "Directory not found"
+          echo ""
+          echo "Contents of llvm-cov-target/debug/deps:"
+          ls -la target/llvm-cov-target/debug/deps/ 2>/dev/null | head -30 || echo "No debug deps"
+          echo ""
+          echo "Contents of llvm-cov-target/release:"
+          ls -la target/llvm-cov-target/release/ 2>/dev/null | head -20 || echo "No release dir"
 
+          echo ""
           echo "=== Profraw files from hardware tests ==="
-          find coverage-hardware/ -name "*.profraw" 2>/dev/null || echo "No hardware profraw files"
+          find coverage-hardware/ -name "*.profraw" -type f 2>/dev/null || echo "No hardware profraw files"
+          HARDWARE_COUNT=$(find coverage-hardware/ -name "*.profraw" 2>/dev/null | wc -l)
+          echo "Hardware profraw count: $HARDWARE_COUNT"
 
           echo ""
           echo "=== Profraw files from zenoh tests ==="
-          find coverage-zenoh/ -name "*.profraw" 2>/dev/null || echo "No zenoh profraw files"
+          find coverage-zenoh/ -name "*.profraw" -type f 2>/dev/null || echo "No zenoh profraw files"
+          ZENOH_COUNT=$(find coverage-zenoh/ -name "*.profraw" 2>/dev/null | wc -l)
+          echo "Zenoh profraw count: $ZENOH_COUNT"
 
-          # Collect all profraw files
-          PROFRAW_FILES=$(find coverage-hardware/ coverage-zenoh/ -name "*.profraw" 2>/dev/null | tr '\n' ' ')
+          TOTAL_COUNT=$((HARDWARE_COUNT + ZENOH_COUNT))
+          echo ""
+          echo "Total profraw files: $TOTAL_COUNT"
 
-          if [ -z "$PROFRAW_FILES" ]; then
-            echo "No profraw files found, skipping coverage processing"
+          if [ "$TOTAL_COUNT" -eq 0 ]; then
+            echo ""
+            echo "WARNING: No profraw files found from hardware tests"
+            echo "This may indicate:"
+            echo "  - Hardware tests did not run (check if conditions were met)"
+            echo "  - LLVM_PROFILE_FILE environment variable was not set"
+            echo "  - Instrumented binaries were not used"
+            echo ""
+            echo "Creating empty coverage file for downstream jobs..."
+            mkdir -p coverage
+            touch coverage/coverage-hardware.lcov
             exit 0
           fi
 
-          mkdir -p coverage
-          echo "Merging profraw files..."
-          "$LLVM_PROFDATA" merge -sparse $PROFRAW_FILES -o coverage/hardware.profdata
+          # Find LLVM tools from Rust toolchain
+          TOOLCHAIN_ROOT=$(rustc --print sysroot)
+          LLVM_PROFDATA=$(find "$TOOLCHAIN_ROOT" -name "llvm-profdata" -type f | head -1)
+          LLVM_COV=$(find "$TOOLCHAIN_ROOT" -name "llvm-cov" -type f | head -1)
 
-          if [ -f coverage/hardware.profdata ]; then
-            # Find instrumented objects (test binaries)
-            OBJECT_FILES=""
-            for obj in $(find target/llvm-cov-target/debug/deps -maxdepth 1 -type f \
-                         ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta" 2>/dev/null); do
-              if file "$obj" | grep -q "ELF"; then
+          if [ -z "$LLVM_PROFDATA" ] || [ -z "$LLVM_COV" ]; then
+            echo "ERROR: Could not find LLVM tools in Rust toolchain"
+            echo "LLVM_PROFDATA: $LLVM_PROFDATA"
+            echo "LLVM_COV: $LLVM_COV"
+            exit 1
+          fi
+
+          echo ""
+          echo "Using LLVM tools:"
+          echo "  llvm-profdata: $LLVM_PROFDATA"
+          echo "  llvm-cov: $LLVM_COV"
+
+          # Collect all profraw files
+          PROFRAW_FILES=$(find coverage-hardware/ coverage-zenoh/ -name "*.profraw" -type f 2>/dev/null)
+
+          # Merge profraw files into profdata
+          echo ""
+          echo "=== Merging profraw files ==="
+          mkdir -p coverage
+          echo "$PROFRAW_FILES" | xargs "$LLVM_PROFDATA" merge -sparse -o coverage/hardware.profdata
+
+          if [ ! -f coverage/hardware.profdata ]; then
+            echo "ERROR: Failed to merge profraw files"
+            exit 1
+          fi
+          echo "Created coverage/hardware.profdata"
+          ls -lh coverage/hardware.profdata
+
+          # Find all instrumented binaries (ELF files)
+          # Note: Execute permissions are lost during artifact upload/download,
+          # so we use 'file' command to identify ELF binaries by content
+          echo ""
+          echo "=== Finding instrumented binaries ==="
+
+          OBJECT_FILES=""
+
+          # Look for test binaries in debug/deps directory
+          for obj in $(find target/llvm-cov-target/debug/deps -maxdepth 1 -type f \
+                       ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta" 2>/dev/null); do
+            if file "$obj" | grep -q "ELF"; then
+              if [ -z "$OBJECT_FILES" ]; then
+                OBJECT_FILES="$obj"
+              else
                 OBJECT_FILES="$OBJECT_FILES --object=$obj"
               fi
-            done
+              echo "  Found test binary: $(basename "$obj")"
+            fi
+          done
 
-            # Also include the instrumented release binary
-            if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
-              if file target/llvm-cov-target/release/edgefirst-navsat | grep -q "ELF"; then
+          # Also include the instrumented release binary (for Zenoh integration tests)
+          if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
+            if file target/llvm-cov-target/release/edgefirst-navsat | grep -q "ELF"; then
+              echo "  Found release binary: edgefirst-navsat"
+              if [ -z "$OBJECT_FILES" ]; then
+                OBJECT_FILES="target/llvm-cov-target/release/edgefirst-navsat"
+              else
                 OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/release/edgefirst-navsat"
               fi
             fi
+          else
+            echo "  WARNING: Release binary not found at target/llvm-cov-target/release/edgefirst-navsat"
+          fi
 
-            if [ -n "$OBJECT_FILES" ]; then
-              echo "Generating LCOV report..."
-              "$LLVM_COV" export --format=lcov \
-                --instr-profile=coverage/hardware.profdata \
-                --ignore-filename-regex='/.cargo/registry|/rustc/' \
-                $OBJECT_FILES > coverage/coverage-hardware.lcov 2>/dev/null || echo "No coverage data"
-            else
-              echo "No instrumented objects found"
-            fi
+          if [ -z "$OBJECT_FILES" ]; then
+            echo "ERROR: No ELF binaries found in target/llvm-cov-target/"
+            echo "All files in llvm-cov-target/:"
+            find target/llvm-cov-target -type f 2>/dev/null | head -50
+            exit 1
+          fi
+
+          # Path mapping for coverage report
+          # The profraw files were generated on raivin, instrumented objects built on ubuntu-22.04-arm
+          # Both should use the same GitHub workspace path
+          WORKSPACE="${{ github.workspace }}"
+
+          echo ""
+          echo "=== Generating LCOV coverage report ==="
+
+          "$LLVM_COV" export \
+            --format=lcov \
+            --instr-profile=coverage/hardware.profdata \
+            --ignore-filename-regex='/.cargo/registry|/rustc/' \
+            $OBJECT_FILES \
+            > coverage/coverage-hardware.lcov
+
+          if [ ! -s coverage/coverage-hardware.lcov ]; then
+            echo "WARNING: Generated LCOV report is empty"
+            echo "This may indicate profraw/object mismatch or no coverage data"
+          else
+            echo "Generated coverage/coverage-hardware.lcov"
+            echo "First 20 lines:"
+            head -20 coverage/coverage-hardware.lcov
+            echo ""
+            echo "Line count: $(wc -l < coverage/coverage-hardware.lcov)"
           fi
 
       - name: Upload processed coverage
@@ -426,39 +620,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history for SonarCloud blame data
 
-      - name: Download all coverage
+      - name: Download all coverage artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           pattern: coverage-*
           path: coverage/
 
-      - name: Generate test summary
-        if: always()
+      - name: Organize coverage files for SonarCloud
         run: |
-          echo "# 📊 NavSat Test & Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🧪 Test Platforms" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | Architecture | Tests |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Ubuntu 22.04 | x86_64 | Unit tests ✓ |" >> $GITHUB_STEP_SUMMARY
-          echo "| Ubuntu 22.04 | aarch64 | Unit tests ✓ |" >> $GITHUB_STEP_SUMMARY
-          echo "| Raivin | aarch64 | Rust hardware tests (GPS) ${{ needs.hardware-test.result == 'success' && '✓' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Raivin | aarch64 | Python Zenoh integration ${{ needs.zenoh-integration-test.result == 'success' && '✓' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📊 Coverage Files" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          find coverage/ -name "*.lcov" -o -name "*.xml" 2>/dev/null | while read f; do
-            echo "- \`$f\`" >> $GITHUB_STEP_SUMMARY
-          done || echo "No coverage files found" >> $GITHUB_STEP_SUMMARY
+          # List all downloaded artifacts for debugging
+          echo "=== Downloaded coverage artifacts ==="
+          find coverage/ -type f
+          echo ""
 
-      - name: Prepare coverage paths
-        id: coverage
-        run: |
-          LCOV_PATHS=$(find coverage/ -name "*.lcov" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-          echo "lcov_paths=$LCOV_PATHS" >> $GITHUB_OUTPUT
+          # Collect all LCOV coverage reports
+          LCOV_REPORTS=$(find coverage/ -name "*.lcov" -type f | tr '\n' ',' | sed 's/,$//')
+
+          echo "=== Coverage report paths ==="
+          echo "LCOV reports: $LCOV_REPORTS"
+
+          # Show sample of coverage report to verify format
+          SAMPLE_REPORT=$(find coverage/ -name "*.lcov" | head -1)
+          if [ -n "$SAMPLE_REPORT" ] && [ -f "$SAMPLE_REPORT" ]; then
+            echo ""
+            echo "=== Sample coverage report (first 15 lines) ==="
+            head -15 "$SAMPLE_REPORT"
+          fi
+
+          # Export for next step
+          echo "LCOV_COVERAGE_PATHS=$LCOV_REPORTS" >> $GITHUB_ENV
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9  # v7.0.0
@@ -467,4 +659,41 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.rust.lcov.reportPaths=${{ steps.coverage.outputs.lcov_paths }}
+            -Dsonar.rust.lcov.reportPaths=${{ env.LCOV_COVERAGE_PATHS }}
+
+      - name: Generate test and coverage summary
+        if: always()
+        run: |
+          echo "# 📊 NavSat Test & Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Test platforms summary
+          echo "## 🧪 Test Platforms" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Architecture | Environment | Tests |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------------|-------------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ubuntu 22.04 | x86_64 | GitHub Runner | Unit tests ✓ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ubuntu 22.04 | aarch64 | GitHub ARM Runner | Unit tests ✓ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Raivin | aarch64 | Real GPS Hardware | Rust hardware tests ${{ needs.hardware-test.result == 'success' && '✓' || (needs.hardware-test.result == 'skipped' && '⏭️ (skipped)' || '❌') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Raivin | aarch64 | Real GPS Hardware | Python Zenoh integration ${{ needs.zenoh-integration-test.result == 'success' && '✓' || (needs.zenoh-integration-test.result == 'skipped' && '⏭️ (skipped)' || '❌') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Coverage files summary
+          echo "## 📁 Coverage Files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size | Lines |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|-------|" >> $GITHUB_STEP_SUMMARY
+          find coverage/ -name "*.lcov" -o -name "*.xml" 2>/dev/null | while read f; do
+            if [ -f "$f" ]; then
+              SIZE=$(ls -lh "$f" | awk '{print $5}')
+              LINES=$(wc -l < "$f" 2>/dev/null || echo "N/A")
+              echo "| \`$f\` | $SIZE | $LINES |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done || echo "No coverage files found" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # SonarCloud Links
+          echo "## 🔗 SonarCloud Dashboard" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [📊 Overall Code](https://sonarcloud.io/summary/overall?id=EdgeFirstAI_navsat&branch=${{ github.ref_name }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [📁 Coverage by File](https://sonarcloud.io/component_measures?id=EdgeFirstAI_navsat&metric=coverage&view=list&branch=${{ github.ref_name }})" >> $GITHUB_STEP_SUMMARY

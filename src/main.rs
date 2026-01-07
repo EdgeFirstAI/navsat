@@ -3,9 +3,9 @@
 
 use cdr::{CdrLe, Infinite};
 use clap::Parser;
+use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
 use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
-use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
 use std::{
     io::{self},
     net::TcpStream,
