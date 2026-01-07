@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-End-to-end Zenoh integration test for Maivin NavSat service.
+End-to-end Zenoh integration test for EdgeFirst NavSat service.
 
-This test validates that the maivin-navsat service correctly publishes
+This test validates that the edgefirst-navsat service correctly publishes
 NavSatFix messages over Zenoh that can be consumed by Python clients.
 
 Requirements:
-    - maivin-navsat service running on localhost
+    - edgefirst-navsat service running on localhost
     - GPSD daemon with GPS receiver providing data
     - edgefirst-schemas Python package installed
     - pytest for test execution
@@ -68,7 +68,7 @@ class TestZenohIntegration:
     """Zenoh end-to-end integration tests for NavSat service."""
     
     def test_service_publishes_messages(self, zenoh_session):
-        """Test that maivin-navsat service publishes NavSatFix messages."""
+        """Test that edgefirst-navsat service publishes NavSatFix messages."""
         collector = NavSatCollector()
         
         # Subscribe to NavSatFix messages
@@ -90,7 +90,7 @@ class TestZenohIntegration:
             assert success, (
                 f"Timeout: Only received {len(collector.messages)} messages, "
                 f"expected {MIN_MESSAGES_REQUIRED} within {TEST_TIMEOUT_SECONDS}s. "
-                f"Is maivin-navsat service running?"
+                f"Is edgefirst-navsat service running?"
             )
             
         finally:

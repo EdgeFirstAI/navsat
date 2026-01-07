@@ -123,17 +123,18 @@ jobs:
           cargo nextest run --workspace --no-run --run-ignored=all
           mkdir -p target/tests
           find target/llvm-cov-target/debug/deps/ -maxdepth 1 -type f -executable \
-            \( -name "maivin_navsat-*" -o -name "*integration*" \) \
+            \( -name "edgefirst_navsat-*" -o -name "*integration*" \) \
             -exec cp {} target/tests/ \;
 
       - name: Build instrumented release binary (aarch64 only)
         if: matrix.platform.name == 'aarch64'
         run: |
           # Build release binary with coverage instrumentation for Zenoh integration tests
+          # Use cargo llvm-cov to ensure binary is built with instrumentation in llvm-cov-target
           source <(cargo llvm-cov show-env --export-prefix)
-          cargo build --release
+          cargo llvm-cov build --release --no-report
           mkdir -p target/release-instrumented
-          cp target/llvm-cov-target/release/maivin-navsat target/release-instrumented/
+          cp target/llvm-cov-target/release/edgefirst-navsat target/release-instrumented/
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
@@ -251,7 +252,7 @@ jobs:
           path: build/
 
       - name: Make binary executable
-        run: chmod +x build/maivin-navsat
+        run: chmod +x build/edgefirst-navsat
 
       - name: Set up Python test environment
         run: |
@@ -265,7 +266,7 @@ jobs:
           mkdir -p coverage
           
           # Start service in background
-          ./build/maivin-navsat --topic rt/gps &
+          ./build/edgefirst-navsat --topic rt/gps &
           NAVSAT_PID=$!
           echo $NAVSAT_PID > navsat.pid
           
@@ -274,11 +275,11 @@ jobs:
           
           # Check if still running
           if ! kill -0 $NAVSAT_PID 2>/dev/null; then
-            echo "ERROR: maivin-navsat failed to start"
+            echo "ERROR: edgefirst-navsat failed to start"
             exit 1
           fi
           
-          echo "maivin-navsat service started (PID: $NAVSAT_PID)"
+          echo "edgefirst-navsat service started (PID: $NAVSAT_PID)"
 
       - name: Run Python Zenoh integration tests
         run: |
@@ -386,9 +387,9 @@ jobs:
             done
 
             # Also include the instrumented release binary
-            if [ -f target/llvm-cov-target/release/maivin-navsat ]; then
-              if file target/llvm-cov-target/release/maivin-navsat | grep -q "ELF"; then
-                OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/release/maivin-navsat"
+            if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
+              if file target/llvm-cov-target/release/edgefirst-navsat | grep -q "ELF"; then
+                OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/release/edgefirst-navsat"
               fi
             fi
 

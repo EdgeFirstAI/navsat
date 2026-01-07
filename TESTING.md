@@ -1,10 +1,10 @@
-# Testing Strategy for Maivin NavSat
+# Testing Strategy for EdgeFirst NavSat
 
-This document describes the comprehensive testing and coverage strategy for the Maivin NavSat project, implemented according to **SPS 11-cicd-pipelines.md v2.4**.
+This document describes the comprehensive testing and coverage strategy for the EdgeFirst NavSat project, implemented according to **SPS 11-cicd-pipelines.md v2.4**.
 
 ## Overview
 
-The Maivin NavSat project uses a **three-phase testing pattern** with comprehensive GPS validation and end-to-end Zenoh integration testing across development, CI, and production hardware environments.
+The EdgeFirst NavSat project uses a **three-phase testing pattern** with comprehensive GPS validation and end-to-end Zenoh integration testing across development, CI, and production hardware environments.
 
 ## Test Environments
 
@@ -52,7 +52,7 @@ cargo test -- --include-ignored
 # Install dependencies
 pip install -r tests/requirements.txt
 
-# Run pytest (requires maivin-navsat service running)
+# Run pytest (requires edgefirst-navsat service running)
 pytest tests/test_zenoh_integration.py -v
 ```
 
@@ -125,7 +125,7 @@ pytest tests/test_zenoh_integration.py -v
 ### 3. Python Zenoh Integration Tests (5 tests)
 
 #### test_service_publishes_messages
-- **Purpose**: Validates maivin-navsat service publishes to Zenoh
+- **Purpose**: Validates edgefirst-navsat service publishes to Zenoh
 - **What it checks**:
   - At least 5 NavSatFix messages received within 60 seconds
   - Messages deserialize correctly using edgefirst-schemas
@@ -181,7 +181,7 @@ Coverage is collected automatically when hardware tests run:
 5. Final LCOV report sent to SonarCloud
 
 ### Zenoh Integration Coverage
-The maivin-navsat service is built with coverage enabled and profraw files collected during the Python test execution.
+The edgefirst-navsat service is built with coverage enabled and profraw files collected during the Python test execution.
 
 ## CI/CD Workflows
 
@@ -282,12 +282,12 @@ View reports at: https://sonarcloud.io/project/overview?id=EdgeFirstAI_navsat
 - Check for RF interference
 
 ### "Python Zenoh test fails"
-**Cause**: maivin-navsat service not publishing  
+**Cause**: edgefirst-navsat service not publishing
 **Solutions**:
 - Verify service started correctly
 - Check Zenoh configuration (localhost interface)
 - Verify GPSD is providing data to service
-- Check logs from maivin-navsat service
+- Check logs from edgefirst-navsat service
 
 ## References
 

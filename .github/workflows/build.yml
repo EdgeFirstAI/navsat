@@ -1,7 +1,7 @@
 # GitHub Actions workflow for building release artifacts
 #
 # This workflow builds binaries for x86_64 and ARM64 platforms and generates
-# documentation for the Maivin NavSat project.
+# documentation for the EdgeFirst NavSat project.
 #
 # Action Versions (hash-pinned per SPS 11-cicd-pipelines.md):
 
@@ -98,8 +98,8 @@ jobs:
       - name: Create package
         run: |
           mkdir -p packages
-          cp target/${{ matrix.platform.target }}/release/maivin-navsat \
-             packages/maivin-navsat-${{ matrix.platform.name }}
+          cp target/${{ matrix.platform.target }}/release/edgefirst-navsat \
+             packages/edgefirst-navsat-${{ matrix.platform.name }}
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0

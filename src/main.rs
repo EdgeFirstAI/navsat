@@ -5,7 +5,7 @@ use cdr::{CdrLe, Infinite};
 use clap::Parser;
 use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
-use maivin_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
+use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
 use std::{
     io::{self},
     net::TcpStream,

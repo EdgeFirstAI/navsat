@@ -26,7 +26,7 @@ set -e  # Exit on error
 # PROJECT CONFIGURATION - CUSTOMIZE THESE
 # ===========================================================================
 
-PROJECT_NAME="maivin-navsat"
+PROJECT_NAME="edgefirst-navsat"
 PROJECT_TYPE="application"  # Options: library, application, framework
 VERSION_FILE="Cargo.toml"  # Single source of truth for version
 

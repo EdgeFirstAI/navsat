@@ -1,6 +1,6 @@
 [package]
-name = "maivin-navsat"
-description = "Maivin NavSat Service"
+name = "edgefirst-navsat"
+description = "EdgeFirst NavSat Service"
 repository = "https://github.com/EdgeFirstAI/navsat"
 license = "Apache-2.0"
 version = "1.3.0"

@@ -7,7 +7,7 @@
 # ===========================================================================
 
 # Project name (for version verification)
-PROJECT_NAME ?= maivin-navsat
+PROJECT_NAME ?= edgefirst-navsat
 
 # Rust features to test (default: all features)
 RUST_FEATURES ?= --all-features
