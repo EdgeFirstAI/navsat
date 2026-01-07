@@ -484,7 +484,11 @@ mod tests {
 
             // Sanity check: coordinates should be valid ranges
             assert!((-90.0..=90.0).contains(&lat), "Invalid latitude: {}", lat);
-            assert!((-180.0..=180.0).contains(&lon), "Invalid longitude: {}", lon);
+            assert!(
+                (-180.0..=180.0).contains(&lon),
+                "Invalid longitude: {}",
+                lon
+            );
 
             println!("GPS Test Location: {:.6}°, {:.6}°", lat, lon);
 
