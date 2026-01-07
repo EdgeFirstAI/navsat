@@ -6,7 +6,7 @@ pytest>=7.4.0
 pytest-timeout>=2.1.0
 
 # Zenoh messaging
-zenoh>=1.0.0
+eclipse-zenoh>=1.0.0
 
 # EdgeFirst schemas for message deserialization
 edgefirst-schemas>=1.4.0
