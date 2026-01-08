@@ -166,25 +166,28 @@ jobs:
           echo "Instrumented test binaries ready for hardware testing:"
           ls -la target/tests/
 
-      - name: Build instrumented release binary (aarch64 only)
+      - name: Build instrumented binary for integration tests (aarch64 only)
         if: matrix.platform.name == 'aarch64'
         run: |
-          # Build release binary with coverage instrumentation for Zenoh integration tests
+          # Build binary with coverage instrumentation for Zenoh integration tests
+          # Uses 'profiling' profile which keeps debug info (strip=false, debug=true)
+          # This is required for LLVM coverage to work properly
+          #
           # source show-env sets RUSTFLAGS for coverage instrumentation
           # We must also set CARGO_TARGET_DIR to put binaries in llvm-cov-target/
           # (show-env only sets CARGO_LLVM_COV_TARGET_DIR which plain cargo ignores)
           source <(cargo llvm-cov show-env --export-prefix)
           export CARGO_TARGET_DIR=target/llvm-cov-target
-          cargo build --release
+          cargo build --profile profiling
 
           # Verify the instrumented binary was built
-          if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
-            mkdir -p target/release-instrumented
-            cp target/llvm-cov-target/release/edgefirst-navsat target/release-instrumented/
-            echo "✓ Instrumented release binary built: target/llvm-cov-target/release/edgefirst-navsat"
-            ls -lh target/release-instrumented/
+          if [ -f target/llvm-cov-target/profiling/edgefirst-navsat ]; then
+            mkdir -p target/profiling-instrumented
+            cp target/llvm-cov-target/profiling/edgefirst-navsat target/profiling-instrumented/
+            echo "✓ Instrumented profiling binary built: target/llvm-cov-target/profiling/edgefirst-navsat"
+            ls -lh target/profiling-instrumented/
           else
-            echo "ERROR: Instrumented release binary not found at target/llvm-cov-target/release/edgefirst-navsat"
+            echo "ERROR: Instrumented profiling binary not found at target/llvm-cov-target/profiling/edgefirst-navsat"
             echo "Contents of target/llvm-cov-target/:"
             ls -la target/llvm-cov-target/ 2>/dev/null || echo "Directory not found"
             echo "Contents of target/:"
@@ -218,12 +221,12 @@ jobs:
           path: target/tests/
           retention-days: 7
 
-      - name: Upload release binary (aarch64 only)
+      - name: Upload instrumented binary (aarch64 only)
         if: matrix.platform.name == 'aarch64'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
-          name: release-binary-aarch64
-          path: target/release-instrumented/
+          name: profiling-binary-aarch64
+          path: target/profiling-instrumented/
           retention-days: 7
 
   hardware-test:
@@ -339,16 +342,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
 
-      - name: Download release binary
+      - name: Download instrumented binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
-          name: release-binary-aarch64
+          name: profiling-binary-aarch64
           path: build/
 
       - name: Make binary executable
         run: |
           chmod +x build/edgefirst-navsat
-          echo "Downloaded release binary:"
+          echo "Downloaded instrumented profiling binary:"
           ls -la build/
 
       - name: Set up Python test environment
@@ -391,23 +394,50 @@ jobs:
             --tb=short \
             || TEST_FAILED=$?
 
-          # Always try to stop service gracefully to flush profraw data
+          # Stop service gracefully to flush profraw data
+          # The service has signal handling that exits cleanly on SIGTERM
           echo ""
           echo "Stopping edgefirst-navsat service..."
           if [ -f navsat.pid ]; then
-            # Send SIGTERM for graceful shutdown (allows profraw flush)
-            kill $(cat navsat.pid) 2>/dev/null || true
-            sleep 2
-            # Force kill if still running
-            kill -9 $(cat navsat.pid) 2>/dev/null || true
+            NAVSAT_PID=$(cat navsat.pid)
+
+            # Send SIGTERM for graceful shutdown (triggers profraw flush)
+            echo "Sending SIGTERM to PID $NAVSAT_PID..."
+            kill $NAVSAT_PID 2>/dev/null || true
+
+            # Wait for graceful shutdown (up to 10 seconds)
+            for i in $(seq 1 10); do
+              if ! kill -0 $NAVSAT_PID 2>/dev/null; then
+                echo "✓ Service exited gracefully after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+
+            # Force kill only if still running after timeout
+            if kill -0 $NAVSAT_PID 2>/dev/null; then
+              echo "WARNING: Service did not exit gracefully, forcing kill..."
+              kill -9 $NAVSAT_PID 2>/dev/null || true
+            fi
           fi
 
-          # Show profraw files generated
+          # Verify profraw files were generated (critical for coverage)
           echo ""
           echo "=== Profraw files generated ==="
           ls -la coverage/ || echo "No coverage directory"
           PROFRAW_COUNT=$(find coverage/ -name "*.profraw" 2>/dev/null | wc -l)
           echo "Total profraw files: $PROFRAW_COUNT"
+
+          if [ "$PROFRAW_COUNT" -eq 0 ]; then
+            echo ""
+            echo "ERROR: No profraw files generated!"
+            echo "This indicates coverage instrumentation is not working."
+            echo "Possible causes:"
+            echo "  - Binary not built with coverage instrumentation"
+            echo "  - LLVM_PROFILE_FILE not properly inherited by service"
+            echo "  - Service did not exit cleanly (signal handling issue)"
+            exit 1
+          fi
 
           exit ${TEST_FAILED:-0}
 
@@ -451,14 +481,12 @@ jobs:
 
       - name: Download hardware test profraw files
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
-        continue-on-error: true
         with:
           name: coverage-hardware
           path: coverage-hardware/
 
       - name: Download zenoh test profraw files
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
-        continue-on-error: true
         with:
           name: coverage-zenoh
           path: coverage-zenoh/
@@ -471,19 +499,19 @@ jobs:
           echo "Contents of llvm-cov-target/debug/deps:"
           ls -la target/llvm-cov-target/debug/deps/ 2>/dev/null | head -30 || echo "No debug deps"
           echo ""
-          echo "Contents of llvm-cov-target/release:"
-          ls -la target/llvm-cov-target/release/ 2>/dev/null | head -20 || echo "No release dir"
+          echo "Contents of llvm-cov-target/profiling:"
+          ls -la target/llvm-cov-target/profiling/ 2>/dev/null | head -20 || echo "No profiling dir"
 
           echo ""
           echo "=== Profraw files from hardware tests ==="
-          find coverage-hardware/ -name "*.profraw" -type f 2>/dev/null || echo "No hardware profraw files"
-          HARDWARE_COUNT=$(find coverage-hardware/ -name "*.profraw" 2>/dev/null | wc -l)
+          find coverage-hardware/ -name "*.profraw" -type f || echo "No hardware profraw files"
+          HARDWARE_COUNT=$(find coverage-hardware/ -name "*.profraw" | wc -l)
           echo "Hardware profraw count: $HARDWARE_COUNT"
 
           echo ""
           echo "=== Profraw files from zenoh tests ==="
-          find coverage-zenoh/ -name "*.profraw" -type f 2>/dev/null || echo "No zenoh profraw files"
-          ZENOH_COUNT=$(find coverage-zenoh/ -name "*.profraw" 2>/dev/null | wc -l)
+          find coverage-zenoh/ -name "*.profraw" -type f || echo "No zenoh profraw files"
+          ZENOH_COUNT=$(find coverage-zenoh/ -name "*.profraw" | wc -l)
           echo "Zenoh profraw count: $ZENOH_COUNT"
 
           TOTAL_COUNT=$((HARDWARE_COUNT + ZENOH_COUNT))
@@ -492,16 +520,12 @@ jobs:
 
           if [ "$TOTAL_COUNT" -eq 0 ]; then
             echo ""
-            echo "WARNING: No profraw files found from hardware tests"
-            echo "This may indicate:"
-            echo "  - Hardware tests did not run (check if conditions were met)"
-            echo "  - LLVM_PROFILE_FILE environment variable was not set"
-            echo "  - Instrumented binaries were not used"
-            echo ""
-            echo "Creating empty coverage file for downstream jobs..."
-            mkdir -p coverage
-            touch coverage/coverage-hardware.lcov
-            exit 0
+            echo "ERROR: No profraw files found from hardware tests"
+            echo "This indicates coverage instrumentation failed. Check:"
+            echo "  - Hardware test job logs for profraw generation"
+            echo "  - Zenoh test job logs for profraw generation"
+            echo "  - LLVM_PROFILE_FILE environment variable was properly set"
+            exit 1
           fi
 
           # Find LLVM tools from Rust toolchain
@@ -558,18 +582,18 @@ jobs:
             fi
           done
 
-          # Also include the instrumented release binary (for Zenoh integration tests)
-          if [ -f target/llvm-cov-target/release/edgefirst-navsat ]; then
-            if file target/llvm-cov-target/release/edgefirst-navsat | grep -q "ELF"; then
-              echo "  Found release binary: edgefirst-navsat"
+          # Also include the instrumented profiling binary (for Zenoh integration tests)
+          if [ -f target/llvm-cov-target/profiling/edgefirst-navsat ]; then
+            if file target/llvm-cov-target/profiling/edgefirst-navsat | grep -q "ELF"; then
+              echo "  Found profiling binary: edgefirst-navsat"
               if [ -z "$OBJECT_FILES" ]; then
-                OBJECT_FILES="target/llvm-cov-target/release/edgefirst-navsat"
+                OBJECT_FILES="target/llvm-cov-target/profiling/edgefirst-navsat"
               else
-                OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/release/edgefirst-navsat"
+                OBJECT_FILES="$OBJECT_FILES --object=target/llvm-cov-target/profiling/edgefirst-navsat"
               fi
             fi
           else
-            echo "  WARNING: Release binary not found at target/llvm-cov-target/release/edgefirst-navsat"
+            echo "  WARNING: Profiling binary not found at target/llvm-cov-target/profiling/edgefirst-navsat"
           fi
 
           if [ -z "$OBJECT_FILES" ]; then

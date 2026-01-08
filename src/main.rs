@@ -9,6 +9,7 @@ use log::{debug, info, warn};
 use std::{
     io::{self},
     net::TcpStream,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use tracing::instrument;
 use tracing_subscriber::{layer::SubscriberExt as _, Layer as _, Registry};
@@ -18,7 +19,30 @@ use zenoh::{
     Session, Wait,
 };
 
+/// Global shutdown flag for signal handling
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+/// Install signal handlers for graceful shutdown
+/// This is critical for LLVM coverage instrumentation - without graceful
+/// shutdown, profraw files are not flushed when the process receives SIGTERM.
+fn install_signal_handlers() {
+    unsafe {
+        // Handle SIGTERM (sent by kill command, systemd, etc.)
+        libc::signal(libc::SIGTERM, handle_signal as libc::sighandler_t);
+        // Handle SIGINT (Ctrl+C)
+        libc::signal(libc::SIGINT, handle_signal as libc::sighandler_t);
+    }
+}
+
+extern "C" fn handle_signal(_: libc::c_int) {
+    SHUTDOWN.store(true, Ordering::SeqCst);
+}
+
 fn main() -> Result<(), GpsdError> {
+    // Install signal handlers for graceful shutdown
+    // This ensures LLVM coverage profraw files are flushed on SIGTERM/SIGINT
+    install_signal_handlers();
+
     let args = Args::parse();
 
     args.tracy.then(tracy_client::Client::start);
@@ -56,7 +80,7 @@ fn main() -> Result<(), GpsdError> {
         &args.gpsd, &args.topic
     );
 
-    loop {
+    while !SHUTDOWN.load(Ordering::SeqCst) {
         let msg = match get_data(&mut reader) {
             Ok(m) => m,
             Err(e) => {
@@ -81,6 +105,9 @@ fn main() -> Result<(), GpsdError> {
 
         args.tracy.then(frame_mark);
     }
+
+    info!("shutting down gracefully");
+    Ok(())
 }
 
 fn handle_device(device: gpsd_proto::Device) {
