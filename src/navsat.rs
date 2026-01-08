@@ -332,12 +332,10 @@ mod tests {
                     Ok(ResponseData::Tpv(tpv)) => {
                         // Only update fix mode if it's better than current
                         // This prevents transient NoFix from overwriting a good fix
-                        let dominated = match (&metrics.fix_mode, &tpv.mode) {
-                            (None, _) => true,
-                            (Some(Mode::NoFix), _) => true,
-                            (Some(Mode::Fix2d), Mode::Fix3d) => true,
-                            _ => false,
-                        };
+                        let dominated = matches!(
+                            (&metrics.fix_mode, &tpv.mode),
+                            (None, _) | (Some(Mode::NoFix), _) | (Some(Mode::Fix2d), Mode::Fix3d)
+                        );
                         if dominated {
                             metrics.fix_mode = Some(tpv.mode);
                         }

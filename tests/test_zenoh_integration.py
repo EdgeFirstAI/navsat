@@ -24,7 +24,22 @@ from edgefirst.schemas.sensor_msgs import NavSatFix
 ZENOH_TOPIC = "rt/gps"
 TEST_TIMEOUT_SECONDS = 60
 MIN_MESSAGES_REQUIRED = 5
-MIN_FIX_QUALITY = 2  # 2 = 2D fix, 3 = 3D fix
+
+# NavSatStatus.status constants from ROS2 sensor_msgs/msg/NavSatStatus
+# Reference: https://docs.ros2.org/foxy/api/sensor_msgs/msg/NavSatStatus.html
+#
+# These match the constants defined in edgefirst-schemas (Rust and Python):
+#   - STATUS_NO_FIX = -1  (unable to fix position)
+#   - STATUS_FIX = 0      (unaugmented fix - basic GPS)
+#   - STATUS_SBAS_FIX = 1 (satellite-based augmentation: WAAS/EGNOS)
+#   - STATUS_GBAS_FIX = 2 (ground-based augmentation: RTK/DGPS)
+#
+# Note: A fix is valid when status >= STATUS_FIX (per ROS2 spec)
+# Note: This is NOT the same as GPSD's "mode" field (NoFix/2D/3D)
+STATUS_NO_FIX = -1
+STATUS_FIX = 0
+STATUS_SBAS_FIX = 1
+STATUS_GBAS_FIX = 2
 
 
 @pytest.fixture(scope="module")
@@ -130,36 +145,39 @@ class TestZenohIntegration:
             subscriber.undeclare()
     
     def test_gps_fix_quality(self, zenoh_session):
-        """Test that GPS receiver provides good quality fix."""
+        """Test that GPS receiver provides valid fix status."""
         collector = NavSatCollector()
         subscriber = zenoh_session.declare_subscriber(ZENOH_TOPIC, collector.callback)
-        
+
         try:
             success = collector.wait_for_messages(MIN_MESSAGES_REQUIRED, TEST_TIMEOUT_SECONDS)
             assert success, "Failed to collect messages for fix quality check"
-            
-            # Check fix quality on received messages
+
+            # Check fix status on received messages
+            # STATUS_FIX (0) or better indicates valid GPS fix
             fix_statuses = [msg.status.status for msg in collector.messages]
-            good_fixes = [s for s in fix_statuses if s >= MIN_FIX_QUALITY]
-            
-            print(f"\nFix quality distribution:")
-            for status in set(fix_statuses):
+            valid_fixes = [s for s in fix_statuses if s >= STATUS_FIX]
+
+            print(f"\nFix status distribution:")
+            for status in sorted(set(fix_statuses)):
                 count = fix_statuses.count(status)
                 pct = (count / len(fix_statuses)) * 100
                 fix_type = {
-                    -1: "No Fix", 0: "No Fix", 1: "No Fix", 
-                    2: "2D Fix", 3: "3D Fix"
-                }.get(status, "Unknown")
+                    -1: "No Fix",
+                    0: "GPS Fix",
+                    1: "SBAS Fix (WAAS/EGNOS)",
+                    2: "GBAS Fix (RTK)"
+                }.get(status, f"Unknown ({status})")
                 print(f"  Status {status} ({fix_type}): {count} messages ({pct:.1f}%)")
-            
-            # Require at least 50% of messages have good fix
-            good_fix_ratio = len(good_fixes) / len(fix_statuses)
-            assert good_fix_ratio >= 0.5, (
-                f"Insufficient GPS fix quality: only {good_fix_ratio*100:.1f}% "
-                f"of messages have fix >= {MIN_FIX_QUALITY}. "
+
+            # Require at least 50% of messages have valid fix (STATUS_FIX or better)
+            valid_fix_ratio = len(valid_fixes) / len(fix_statuses)
+            assert valid_fix_ratio >= 0.5, (
+                f"Insufficient GPS fix quality: only {valid_fix_ratio*100:.1f}% "
+                f"of messages have valid fix (status >= {STATUS_FIX}). "
                 f"Check GPS antenna placement and sky view."
             )
-            
+
         finally:
             subscriber.undeclare()
     
