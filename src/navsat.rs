@@ -330,10 +330,28 @@ mod tests {
             while start.elapsed().as_secs() < timeout_secs {
                 match get_data(&mut reader) {
                     Ok(ResponseData::Tpv(tpv)) => {
-                        metrics.fix_mode = Some(tpv.mode);
-                        metrics.latitude = tpv.lat;
-                        metrics.longitude = tpv.lon;
-                        metrics.altitude = tpv.alt.map(|a| a as f64);
+                        // Only update fix mode if it's better than current
+                        // This prevents transient NoFix from overwriting a good fix
+                        let dominated = match (&metrics.fix_mode, &tpv.mode) {
+                            (None, _) => true,
+                            (Some(Mode::NoFix), _) => true,
+                            (Some(Mode::Fix2d), Mode::Fix3d) => true,
+                            _ => false,
+                        };
+                        if dominated {
+                            metrics.fix_mode = Some(tpv.mode);
+                        }
+
+                        // Update position data if available
+                        if tpv.lat.is_some() {
+                            metrics.latitude = tpv.lat;
+                        }
+                        if tpv.lon.is_some() {
+                            metrics.longitude = tpv.lon;
+                        }
+                        if tpv.alt.is_some() {
+                            metrics.altitude = tpv.alt.map(|a| a as f64);
+                        }
                     }
                     Ok(ResponseData::Sky(sky)) => {
                         if let Some(sats) = &sky.satellites {
@@ -376,8 +394,12 @@ mod tests {
                     }
                 }
 
-                // If we have fix and satellite data, we can stop early
-                if metrics.fix_mode.is_some() && metrics.satellites_visible > 0 {
+                // Only exit early if we have a valid fix (2D or 3D) AND satellite data
+                // Don't exit early on NoFix - keep collecting until we get a good fix or
+                // timeout
+                let has_valid_fix =
+                    matches!(metrics.fix_mode, Some(Mode::Fix2d) | Some(Mode::Fix3d));
+                if has_valid_fix && metrics.satellites_visible > 0 && metrics.latitude.is_some() {
                     break;
                 }
             }
