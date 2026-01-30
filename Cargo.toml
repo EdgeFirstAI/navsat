@@ -28,12 +28,11 @@ profiling = [
 ]
 
 [dependencies]
-cdr = "0.2.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
-edgefirst-schemas = "1.4.1"
+edgefirst-schemas = "1.5.1"
 gpsd_proto = "1.0.0"
 itertools = "0.14.0"
-libc = "0.2.177"
+libc = "0.2.180"
 log = "0.4.28"
 serde_json = "1.0.145"
 tracing = "0.1.43"
@@ -46,10 +45,10 @@ tracing-tracy = { version = "0.11.4", default-features = false, features = [
     "ondemand",
     "fibers",
 ] }
-tracy-client = { version = "0.18.3", default-features = false, features = [
+tracy-client = { version = "0.18.4", default-features = false, features = [
     "manual-lifetime",
     "broadcast",
     "ondemand",
     "fibers",
 ] }
-zenoh = "1.6.2"
+zenoh = "1.7.2"

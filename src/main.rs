@@ -1,9 +1,11 @@
 // Copyright 2025 Au-Zone Technologies Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use cdr::{CdrLe, Infinite};
 use clap::Parser;
 use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
+use edgefirst_schemas::{
+    schema_registry::SchemaType, sensor_msgs::NavSatFix, serde_cdr::serialize,
+};
 use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
 use std::{
@@ -27,10 +29,13 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 /// shutdown, profraw files are not flushed when the process receives SIGTERM.
 fn install_signal_handlers() {
     unsafe {
+        // Cast function pointer via *const () to avoid direct function-to-integer cast
+        // warning
+        let handler = handle_signal as *const () as libc::sighandler_t;
         // Handle SIGTERM (sent by kill command, systemd, etc.)
-        libc::signal(libc::SIGTERM, handle_signal as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, handler);
         // Handle SIGINT (Ctrl+C)
-        libc::signal(libc::SIGINT, handle_signal as libc::sighandler_t);
+        libc::signal(libc::SIGINT, handler);
     }
 }
 
@@ -135,8 +140,8 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     };
 
     let msg = create_navsat_fix_from_tpv(tpv, stamp);
-    let msg = ZBytes::from(cdr::serialize::<_, _, CdrLe>(&msg, Infinite).unwrap());
-    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
+    let msg = ZBytes::from(serialize(&msg).unwrap());
+    let enc = Encoding::APPLICATION_CDR.with_schema(NavSatFix::SCHEMA_NAME);
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish TPV message: {}", e);
@@ -156,8 +161,8 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     };
 
     let msg = create_navsat_fix_from_gst(gst, stamp);
-    let msg = ZBytes::from(cdr::serialize::<_, _, CdrLe>(&msg, Infinite).unwrap());
-    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
+    let msg = ZBytes::from(serialize(&msg).unwrap());
+    let enc = Encoding::APPLICATION_CDR.with_schema(NavSatFix::SCHEMA_NAME);
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish GST message: {}", e);

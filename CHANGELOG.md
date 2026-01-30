@@ -1,20 +1,36 @@
 # Changelog
 
-All notable changes to Maivin NavSat will be documented in this file.
+All notable changes to EdgeFirst NavSat will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Graceful shutdown with SIGTERM/SIGINT signal handling for clean process termination
+- Support for LLVM coverage profraw file flushing on shutdown
+
 ### Changed
 
 - CI workflow uses nightly rustfmt for unstable formatting options
 - Updated Makefile with `sbom` target for SPS compliance
+- Upgraded edgefirst-schemas from 1.4.1 to 1.5.1
+- Use `edgefirst_schemas::serde_cdr::serialize()` API instead of direct cdr crate
+- Use `NavSatFix::SCHEMA_NAME` constant for schema type encoding
+- Updated zenoh from 1.6.2 to 1.7.2
+- Updated tracy-client from 0.18.3 to 0.18.4
+- Updated libc from 0.2.177 to 0.2.180
+
+### Removed
+
+- Removed direct dependency on cdr crate (now using edgefirst-schemas re-export)
 
 ### Fixed
 
 - Fixed NOTICE file format to match validation script requirements
+- Fixed function cast warnings in signal handler installation
 
 ## [1.3.0] - 2025-11-29
 
