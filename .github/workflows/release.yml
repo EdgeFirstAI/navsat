@@ -83,7 +83,7 @@ jobs:
         uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc  # v1.3.4
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build (x86_64)'
+          check-name: 'Build Packages (x86_64)'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 10
 
@@ -91,7 +91,7 @@ jobs:
         uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc  # v1.3.4
         with:
           ref: ${{ github.sha }}
-          check-name: 'Build (aarch64)'
+          check-name: 'Build Packages (aarch64)'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 10
 
