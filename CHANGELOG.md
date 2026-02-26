@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-02-26
+
+### Added
+
+- Default configuration file (`navsat.default`) with documented settings for all options
+- Release artifacts now include `navsat.default` configuration file
+
+### Changed
+
+- Use explicit environment variable names in CLI argument definitions
+- Improved CLI argument help descriptions
+- Updated clap from 4.5.53 to 4.5.60
+- Updated edgefirst-schemas from 1.5.1 to 1.5.5
+- Updated libc from 0.2.180 to 0.2.182
+
 ## [1.4.0] - 2026-01-30
 
 ### Added
@@ -121,7 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.1.0...v1.2.0
