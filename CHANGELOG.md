@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-03-01
+
+### Fixed
+
+- Handle empty CONNECT/LISTEN environment variables without panicking
+
 ## [1.5.0] - 2026-02-26
 
 ### Added
@@ -136,7 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.2.0...v1.3.0
