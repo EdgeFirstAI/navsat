@@ -9,7 +9,7 @@ use edgefirst_schemas::{
     std_msgs::Header,
 };
 use gpsd_proto::{Gst, Tpv};
-use std::io::Error;
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 /// Creates a NavSatFix message from TPV (Time-Position-Velocity) data.
 ///
@@ -68,28 +68,23 @@ pub fn create_navsat_fix_from_gst(gst: &Gst, stamp: builtin_interfaces::Time) ->
     }
 }
 
-/// Gets the current monotonic timestamp.
+/// Gets the current wall-clock timestamp.
 ///
-/// Uses `CLOCK_MONOTONIC_RAW` for consistent timing that is not affected
-/// by NTP adjustments or system clock changes.
+/// Uses `SystemTime` (backed by `CLOCK_REALTIME` on Linux) for ROS 2
+/// compatible Header stamps. Wall-clock time is the convention across
+/// the ROS 2 ecosystem, enabling correlation with logs, rosbags, and
+/// external systems.
 ///
 /// # Returns
 ///
 /// A `Time` struct with seconds and nanoseconds, or an error if the
-/// system call fails.
-pub fn timestamp() -> Result<builtin_interfaces::Time, Error> {
-    let mut tp = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    let err = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut tp) };
-    if err != 0 {
-        return Err(Error::last_os_error());
-    }
+/// system clock is before the Unix epoch.
+pub fn timestamp() -> Result<builtin_interfaces::Time, SystemTimeError> {
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH)?;
 
     Ok(builtin_interfaces::Time {
-        sec: tp.tv_sec as i32,
-        nanosec: tp.tv_nsec as u32,
+        sec: duration.as_secs() as i32,
+        nanosec: duration.subsec_nanos(),
     })
 }
 
@@ -142,14 +137,15 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_returns_valid_time() {
+    fn test_timestamp_returns_valid_wall_clock() {
         let time = timestamp().unwrap();
-        assert!(time.sec >= 0);
+        // Wall-clock time should be well past Unix epoch year 2020
+        assert!(time.sec > 1_577_836_800); // 2020-01-01T00:00:00Z
         assert!(time.nanosec < 1_000_000_000);
     }
 
     #[test]
-    fn test_timestamp_is_monotonic() {
+    fn test_timestamp_is_non_decreasing() {
         let time1 = timestamp().unwrap();
         let time2 = timestamp().unwrap();
 
@@ -517,25 +513,29 @@ mod tests {
             }
         }
 
-        /// Test timestamp generation on real hardware
+        /// Test wall-clock timestamp generation on real hardware
         #[test]
         #[ignore = "Requires real-time clock on hardware"]
         fn test_hardware_timestamp_accuracy() {
-            // Test that timestamp() returns monotonic time (time since boot)
-            // This is correct for ROS message timing which needs monotonic timestamps
-
             let time1 = timestamp().expect("Failed to get hardware timestamp");
             std::thread::sleep(std::time::Duration::from_millis(100));
             let time2 = timestamp().expect("Failed to get second hardware timestamp");
+
+            // Wall-clock time should be well past Unix epoch year 2020
+            assert!(
+                time1.sec > 1_577_836_800,
+                "Wall-clock time looks invalid (pre-2020): {}",
+                time1.sec
+            );
 
             // Convert to nanoseconds for comparison
             let nanos1 = (time1.sec as i64) * 1_000_000_000 + (time1.nanosec as i64);
             let nanos2 = (time2.sec as i64) * 1_000_000_000 + (time2.nanosec as i64);
 
-            // Verify monotonic time is increasing
+            // Verify wall-clock time is increasing
             assert!(
                 nanos2 > nanos1,
-                "Monotonic timestamp not increasing: {} -> {}",
+                "Wall-clock timestamp not increasing: {} -> {}",
                 nanos1,
                 nanos2
             );
@@ -549,7 +549,7 @@ mod tests {
             );
 
             println!(
-                "Monotonic timestamp test: {} -> {} (elapsed: {}ms)",
+                "Wall-clock timestamp test: {} -> {} (elapsed: {}ms)",
                 nanos1, nanos2, elapsed_ms
             );
         }
