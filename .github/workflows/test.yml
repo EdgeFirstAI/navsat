@@ -233,8 +233,6 @@ jobs:
     name: Hardware Integration Tests (raivin)
     needs: build-and-test
     runs-on: raivin
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-hardware')
-
     steps:
       - name: Clean workspace (self-hosted runner)
         run: |
@@ -330,8 +328,6 @@ jobs:
     name: Zenoh Integration Test (raivin)
     needs: build-and-test
     runs-on: raivin
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-hardware')
-
     steps:
       - name: Clean workspace (self-hosted runner)
         run: |
@@ -461,7 +457,10 @@ jobs:
     name: Process Hardware Coverage
     needs: [build-and-test, hardware-test, zenoh-integration-test]
     runs-on: ubuntu-22.04-arm
-    if: always() && needs.build-and-test.result == 'success'
+    if: >-
+      always() &&
+      needs.build-and-test.result == 'success' &&
+      (needs.hardware-test.result == 'success' || needs.zenoh-integration-test.result == 'success')
 
     steps:
       - name: Checkout code
@@ -480,12 +479,14 @@ jobs:
           path: target/llvm-cov-target/
 
       - name: Download hardware test profraw files
+        if: needs.hardware-test.result == 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: coverage-hardware
           path: coverage-hardware/
 
       - name: Download zenoh test profraw files
+        if: needs.zenoh-integration-test.result == 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: coverage-zenoh

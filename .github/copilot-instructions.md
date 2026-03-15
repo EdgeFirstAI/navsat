@@ -77,7 +77,7 @@ Messages are serialized using CDR encoding via `edgefirst-schemas` and published
 - **Hardware tests** (5, `#[ignore]`): Require GPSD + GPS receiver. Run on `raivin` self-hosted runner. Test GPSD connection, fix quality, signal quality (SNR), position reporting, and timestamp accuracy.
 - **Python Zenoh integration tests** (`tests/`): End-to-end tests requiring the navsat service running. Use `pytest` with `tests/requirements.txt`.
 
-Hardware tests run in CI only on `main` branch or PRs labeled `test-hardware`.
+Hardware tests run in CI on all pushes to `main`/`develop` and all pull requests.
 
 ## Configuration
 
