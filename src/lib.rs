@@ -11,4 +11,6 @@ pub mod args;
 pub mod navsat;
 
 pub use args::Args;
-pub use navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp};
+pub use navsat::{
+    create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, TimestampError,
+};

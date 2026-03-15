@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
+use edgefirst_navsat::{
+    create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args, TimestampError,
+};
 use edgefirst_schemas::{
     schema_registry::SchemaType, sensor_msgs::NavSatFix, serde_cdr::serialize,
 };
@@ -133,6 +135,13 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
 
     let stamp = match timestamp() {
         Ok(t) => t,
+        Err(TimestampError::Overflow) => {
+            warn!("Timestamp overflow: system clock exceeds i32 range (Y2038), saturating");
+            edgefirst_schemas::builtin_interfaces::Time {
+                sec: i32::MAX,
+                nanosec: 999_999_999,
+            }
+        }
         Err(e) => {
             warn!("Failed to get timestamp: {}", e);
             return;
@@ -154,6 +163,13 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
 
     let stamp = match timestamp() {
         Ok(t) => t,
+        Err(TimestampError::Overflow) => {
+            warn!("Timestamp overflow: system clock exceeds i32 range (Y2038), saturating");
+            edgefirst_schemas::builtin_interfaces::Time {
+                sec: i32::MAX,
+                nanosec: 999_999_999,
+            }
+        }
         Err(e) => {
             warn!("Failed to get timestamp: {}", e);
             return;

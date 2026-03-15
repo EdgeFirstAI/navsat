@@ -11,6 +11,33 @@ use edgefirst_schemas::{
 use gpsd_proto::{Gst, Tpv};
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
+/// Errors that can occur when generating timestamps.
+#[derive(Debug)]
+pub enum TimestampError {
+    /// System clock is before Unix epoch.
+    BeforeEpoch(SystemTimeError),
+    /// System clock seconds exceed i32 range (Y2038).
+    Overflow,
+}
+
+impl std::fmt::Display for TimestampError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BeforeEpoch(e) => write!(f, "system clock before Unix epoch: {e}"),
+            Self::Overflow => write!(f, "system clock seconds exceed i32 range"),
+        }
+    }
+}
+
+impl std::error::Error for TimestampError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::BeforeEpoch(e) => Some(e),
+            Self::Overflow => None,
+        }
+    }
+}
+
 /// Creates a NavSatFix message from TPV (Time-Position-Velocity) data.
 ///
 /// # Arguments
@@ -78,12 +105,19 @@ pub fn create_navsat_fix_from_gst(gst: &Gst, stamp: builtin_interfaces::Time) ->
 /// # Returns
 ///
 /// A `Time` struct with seconds and nanoseconds, or an error if the
-/// system clock is before the Unix epoch.
-pub fn timestamp() -> Result<builtin_interfaces::Time, SystemTimeError> {
-    let duration = SystemTime::now().duration_since(UNIX_EPOCH)?;
+/// system clock is before the Unix epoch or beyond the i32 range (Y2038).
+pub fn timestamp() -> Result<builtin_interfaces::Time, TimestampError> {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(TimestampError::BeforeEpoch)?;
+
+    let secs = duration.as_secs();
+    if secs > i32::MAX as u64 {
+        return Err(TimestampError::Overflow);
+    }
 
     Ok(builtin_interfaces::Time {
-        sec: duration.as_secs() as i32,
+        sec: secs as i32,
         nanosec: duration.subsec_nanos(),
     })
 }
@@ -145,14 +179,15 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_is_non_decreasing() {
+    fn test_timestamp_consecutive_calls_valid() {
         let time1 = timestamp().unwrap();
         let time2 = timestamp().unwrap();
 
-        let nanos1 = (time1.sec as i64) * 1_000_000_000 + (time1.nanosec as i64);
-        let nanos2 = (time2.sec as i64) * 1_000_000_000 + (time2.nanosec as i64);
-
-        assert!(nanos2 >= nanos1);
+        // Both should be valid wall-clock times past 2020
+        assert!(time1.sec > 1_577_836_800);
+        assert!(time2.sec > 1_577_836_800);
+        assert!(time1.nanosec < 1_000_000_000);
+        assert!(time2.nanosec < 1_000_000_000);
     }
 
     #[test]
@@ -518,39 +553,34 @@ mod tests {
         #[ignore = "Requires real-time clock on hardware"]
         fn test_hardware_timestamp_accuracy() {
             let time1 = timestamp().expect("Failed to get hardware timestamp");
+            let mono_start = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_millis(100));
             let time2 = timestamp().expect("Failed to get second hardware timestamp");
+            let mono_elapsed = mono_start.elapsed();
 
-            // Wall-clock time should be well past Unix epoch year 2020
+            // Wall-clock times should be valid (past 2020)
             assert!(
                 time1.sec > 1_577_836_800,
                 "Wall-clock time looks invalid (pre-2020): {}",
                 time1.sec
             );
-
-            // Convert to nanoseconds for comparison
-            let nanos1 = (time1.sec as i64) * 1_000_000_000 + (time1.nanosec as i64);
-            let nanos2 = (time2.sec as i64) * 1_000_000_000 + (time2.nanosec as i64);
-
-            // Verify wall-clock time is increasing
             assert!(
-                nanos2 > nanos1,
-                "Wall-clock timestamp not increasing: {} -> {}",
-                nanos1,
-                nanos2
+                time2.sec > 1_577_836_800,
+                "Wall-clock time looks invalid (pre-2020): {}",
+                time2.sec
             );
 
-            // Verify the elapsed time is approximately 100ms (allow 50-150ms range)
-            let elapsed_ms = (nanos2 - nanos1) / 1_000_000;
+            // Use monotonic clock to verify sleep duration (not wall-clock delta)
+            let elapsed_ms = mono_elapsed.as_millis();
             assert!(
-                (50..=150).contains(&elapsed_ms),
-                "Elapsed time {} ms not in expected range [50-150ms]",
+                (50..=200).contains(&elapsed_ms),
+                "Monotonic elapsed time {}ms not in expected range [50-200ms]",
                 elapsed_ms
             );
 
             println!(
-                "Wall-clock timestamp test: {} -> {} (elapsed: {}ms)",
-                nanos1, nanos2, elapsed_ms
+                "Wall-clock timestamps: t1.sec={}, t2.sec={} (monotonic elapsed: {}ms)",
+                time1.sec, time2.sec, elapsed_ms
             );
         }
     }

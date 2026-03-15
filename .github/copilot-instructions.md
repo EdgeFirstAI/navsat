@@ -24,7 +24,7 @@ cargo test -- --include-ignored    # All tests including hardware (requires GPSD
 cargo test <test_name>             # Run a single test
 
 # Makefile shortcuts
-make format                        # Format with nightly rustfmt, falls back to stable
+make format                        # Format with rustfmt
 make lint                          # clippy --all-targets --all-features -- -D warnings
 make test                          # Tests with coverage via cargo-nextest + cargo-llvm-cov
 make pre-release                   # Full validation: format, lint, version check, test, SBOM
@@ -86,7 +86,7 @@ Runtime configuration is via CLI flags or environment variables. See `navsat.def
 ## Code Style
 
 - Always run `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` before committing. Both are enforced in CI.
-- `rustfmt.toml`: `imports_granularity = 'Crate'`, `reorder_impl_items = true`, `use_field_init_shorthand = true`, `wrap_comments = true`, max line length 100
+- `rustfmt.toml`: `use_field_init_shorthand = true`, `edition = "2021"`
 - SPDX headers required on all source files: `// Copyright 2025 Au-Zone Technologies Inc.` + `// SPDX-License-Identifier: Apache-2.0`
 - Commits must be signed with DCO (`git commit -s`)
 - Branch naming: `feature/<desc>`, `bugfix/<desc>`, `docs/<desc>`
