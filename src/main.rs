@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use edgefirst_navsat::{create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args};
+use edgefirst_navsat::{
+    create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args, TimestampError,
+};
 use edgefirst_schemas::{
-    schema_registry::SchemaType, sensor_msgs::NavSatFix, serde_cdr::serialize,
+    builtin_interfaces, schema_registry::SchemaType, sensor_msgs::NavSatFix, serde_cdr::serialize,
 };
 use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
@@ -127,16 +129,34 @@ fn handle_pps(pps: gpsd_proto::Pps) {
     debug!("{:?}", pps);
 }
 
+/// Gets the current timestamp for message headers.
+///
+/// On Y2038 overflow, logs a warning and returns a saturated timestamp so GPS
+/// data continues publishing. Returns `None` only if the system clock is before
+/// the Unix epoch (unrecoverable).
+fn get_stamp() -> Option<builtin_interfaces::Time> {
+    match timestamp() {
+        Ok(t) => Some(t),
+        Err(TimestampError::Overflow) => {
+            warn!("Timestamp overflow: system clock exceeds i32 range (Y2038), saturating");
+            Some(builtin_interfaces::Time {
+                sec: i32::MAX,
+                nanosec: 999_999_999,
+            })
+        }
+        Err(e) => {
+            warn!("Failed to get timestamp: {}", e);
+            None
+        }
+    }
+}
+
 #[instrument(skip_all)]
 fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     debug!("{:?}", tpv);
 
-    let stamp = match timestamp() {
-        Ok(t) => t,
-        Err(e) => {
-            warn!("Failed to get timestamp: {}", e);
-            return;
-        }
+    let Some(stamp) = get_stamp() else {
+        return;
     };
 
     let msg = create_navsat_fix_from_tpv(tpv, stamp);
@@ -152,12 +172,8 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
 fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     debug!("{:?}", gst);
 
-    let stamp = match timestamp() {
-        Ok(t) => t,
-        Err(e) => {
-            warn!("Failed to get timestamp: {}", e);
-            return;
-        }
+    let Some(stamp) = get_stamp() else {
+        return;
     };
 
     let msg = create_navsat_fix_from_gst(gst, stamp);

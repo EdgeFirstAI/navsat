@@ -39,7 +39,7 @@ help:
 .PHONY: format
 format:
 	@echo "Formatting Rust code..."
-	cargo +nightly fmt --all || cargo fmt --all
+	cargo fmt --all
 	@echo "✓ Formatting complete"
 
 # Run linters
