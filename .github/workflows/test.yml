@@ -232,6 +232,8 @@ jobs:
   hardware-test:
     name: Hardware Integration Tests (raivin)
     needs: build-and-test
+    # Security: This runs on a self-hosted runner. Safe because this is a private
+    # repo (no fork PRs) and pull_request events use the base branch workflow.
     runs-on: raivin
     steps:
       - name: Clean workspace (self-hosted runner)
@@ -327,6 +329,8 @@ jobs:
   zenoh-integration-test:
     name: Zenoh Integration Test (raivin)
     needs: build-and-test
+    # Security: This runs on a self-hosted runner. Safe because this is a private
+    # repo (no fork PRs) and pull_request events use the base branch workflow.
     runs-on: raivin
     steps:
       - name: Clean workspace (self-hosted runner)

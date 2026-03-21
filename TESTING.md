@@ -21,7 +21,7 @@ The EdgeFirst NavSat project uses a **three-phase testing pattern** with compreh
   - Rust hardware integration tests (marked with `#[ignore]`)
   - Python Zenoh end-to-end integration tests
 - **Coverage**: Runtime profraw collection
-- **When**: On all pushes and pull requests
+- **When**: On pushes to `main`/`develop` and pull requests targeting those branches
 
 ### Phase 3: Coverage Processing
 - **Platform**: `ubuntu-22.04` (matching build toolchain)
@@ -197,7 +197,7 @@ The edgefirst-navsat service is built with coverage enabled and profraw files co
   - `sonarcloud` - Static analysis and coverage reporting
 
 ### Hardware Test Conditions
-Hardware tests run on all pushes to `main`/`develop` and all pull requests targeting those branches.
+Hardware tests run on pushes to `main`/`develop` and pull requests targeting those branches.
 
 ## Test Metrics and Reporting
 

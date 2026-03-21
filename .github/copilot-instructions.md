@@ -4,7 +4,7 @@ This file provides guidance to AI coding assistants when working with code in th
 
 ## Project Overview
 
-EdgeFirst NavSat (`edgefirst-navsat`) is a GPS/GNSS driver for the EdgeFirst Maivin platform. It connects to GPSD, reads GPS positioning data, and publishes ROS 2 `NavSatFix` messages over Zenoh. It is a single-binary Rust application (not a ROS 2 node built with colcon).
+EdgeFirst NavSat (`edgefirst-navsat`) is a GPS/GNSS driver for the EdgeFirst Maivin platform. It connects to GPSD, reads GPS positioning data, and publishes ROS 2 `NavSatFix` messages over Zenoh. It is a standalone Rust binary that publishes ROS 2 messages over Zenoh (not built with colcon or ament).
 
 ## Build & Development Commands
 

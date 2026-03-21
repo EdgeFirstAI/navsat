@@ -171,10 +171,15 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_returns_valid_wall_clock() {
+    fn test_timestamp_matches_system_time() {
+        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let time = timestamp().unwrap();
-        // Wall-clock time should be well past Unix epoch year 2020
-        assert!(time.sec > 1_577_836_800); // 2020-01-01T00:00:00Z
+        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+        // Timestamp should fall between the two SystemTime samples
+        let ts_secs = time.sec as u64;
+        assert!(ts_secs >= before.as_secs());
+        assert!(ts_secs <= after.as_secs());
         assert!(time.nanosec < 1_000_000_000);
     }
 
@@ -183,11 +188,13 @@ mod tests {
         let time1 = timestamp().unwrap();
         let time2 = timestamp().unwrap();
 
-        // Both should be valid wall-clock times past 2020
-        assert!(time1.sec > 1_577_836_800);
-        assert!(time2.sec > 1_577_836_800);
+        // Both should have valid nanosecond range
         assert!(time1.nanosec < 1_000_000_000);
         assert!(time2.nanosec < 1_000_000_000);
+
+        // Both should have non-negative seconds (valid post-epoch)
+        assert!(time1.sec >= 0);
+        assert!(time2.sec >= 0);
     }
 
     #[test]
