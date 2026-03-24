@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-03-23
+
+### Added
+
+- `TimestampError` enum with `BeforeEpoch` and `Overflow` variants for explicit timestamp error handling
+- Y2038 overflow detection in `timestamp()` with saturated timestamp fallback (`i32::MAX`)
+- GPS data continues publishing past 2038 with clamped header timestamps
+- Unified AI assistant instructions (`.github/copilot-instructions.md`)
+- Y2038 handling documented in ARCHITECTURE.md
+
+### Changed
+
+- Header stamps now use `CLOCK_REALTIME` (wall clock) per ROS 2 convention instead of `CLOCK_MONOTONIC_RAW`
+- `timestamp()` returns `Result<Time, TimestampError>` instead of `Result<Time, io::Error>`
+- Removed `unsafe libc::clock_gettime` usage from timestamp generation
+- Hardware tests now run on all PRs (removed `test-hardware` label gate)
+- CI formatting check uses stable rustfmt instead of nightly
+- Simplified `rustfmt.toml` to stable-only options
+
+### Removed
+
+- Removed `.cargo/config.toml` — cross-compilation should use `cargo-zigbuild`
+- Removed nightly rustfmt dependency from CI and Makefile
+
 ## [1.5.1] - 2026-03-01
 
 ### Fixed
@@ -142,7 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.3.0...v1.4.0
