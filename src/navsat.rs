@@ -5,6 +5,7 @@
 
 use edgefirst_schemas::{
     builtin_interfaces,
+    cdr::CdrError,
     sensor_msgs::{nav_sat_fix, nav_sat_status, NavSatFix, NavSatStatus},
 };
 use gpsd_proto::{Gst, Tpv};
@@ -50,7 +51,7 @@ impl std::error::Error for TimestampError {
 pub fn create_navsat_fix_from_tpv(
     tpv: &Tpv,
     stamp: builtin_interfaces::Time,
-) -> NavSatFix<Vec<u8>> {
+) -> Result<NavSatFix<Vec<u8>>, CdrError> {
     NavSatFix::builder()
         .stamp(stamp)
         .frame_id("")
@@ -64,7 +65,6 @@ pub fn create_navsat_fix_from_tpv(
         .position_covariance([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         .position_covariance_type(nav_sat_fix::COVARIANCE_TYPE_UNKNOWN)
         .build()
-        .expect("valid NavSatFix")
 }
 
 /// Creates a NavSatFix message from GST (GPS Pseudorange Noise Statistics)
@@ -81,7 +81,7 @@ pub fn create_navsat_fix_from_tpv(
 pub fn create_navsat_fix_from_gst(
     gst: &Gst,
     stamp: builtin_interfaces::Time,
-) -> NavSatFix<Vec<u8>> {
+) -> Result<NavSatFix<Vec<u8>>, CdrError> {
     NavSatFix::builder()
         .stamp(stamp)
         .frame_id("")
@@ -95,7 +95,6 @@ pub fn create_navsat_fix_from_gst(
         .position_covariance([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         .position_covariance_type(nav_sat_fix::COVARIANCE_TYPE_UNKNOWN)
         .build()
-        .expect("valid NavSatFix")
 }
 
 /// Gets the current wall-clock timestamp.
@@ -208,7 +207,7 @@ mod tests {
             sec: 123,
             nanosec: 456,
         };
-        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp).expect("valid NavSatFix");
 
         assert_eq!(msg.latitude(), 45.4215);
         assert_eq!(msg.longitude(), -75.6972);
@@ -228,7 +227,7 @@ mod tests {
         let tpv = make_tpv(None, None, None);
 
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
-        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp).expect("valid NavSatFix");
 
         assert_eq!(msg.latitude(), 0.0);
         assert_eq!(msg.longitude(), 0.0);
@@ -243,7 +242,7 @@ mod tests {
             sec: 789,
             nanosec: 101112,
         };
-        let msg = create_navsat_fix_from_gst(&gst, stamp);
+        let msg = create_navsat_fix_from_gst(&gst, stamp).expect("valid NavSatFix");
 
         assert_eq!(msg.latitude() as f32, 45.4215);
         assert_eq!(msg.longitude() as f32, -75.6972);
@@ -257,7 +256,7 @@ mod tests {
         let gst = make_gst(None, None, None);
 
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
-        let msg = create_navsat_fix_from_gst(&gst, stamp);
+        let msg = create_navsat_fix_from_gst(&gst, stamp).expect("valid NavSatFix");
 
         assert_eq!(msg.latitude(), 0.0);
         assert_eq!(msg.longitude(), 0.0);
@@ -268,7 +267,7 @@ mod tests {
     fn test_navsat_fix_covariance_is_unknown() {
         let tpv = make_tpv(None, None, None);
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
-        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp).expect("valid NavSatFix");
 
         assert_eq!(msg.position_covariance()[0], -1.0);
         assert_eq!(
@@ -281,7 +280,7 @@ mod tests {
     fn test_create_navsat_fix_header_frame_id_is_empty() {
         let tpv = make_tpv(Some(0.0), Some(0.0), Some(0.0));
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
-        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp).expect("valid NavSatFix");
 
         assert!(msg.frame_id().is_empty());
     }
@@ -293,7 +292,7 @@ mod tests {
             sec: 123,
             nanosec: 456,
         };
-        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp).expect("valid NavSatFix");
         let decoded = NavSatFix::from_cdr(msg.into_cdr()).expect("decode NavSatFix");
         assert_eq!(decoded.latitude(), 45.4215);
         assert_eq!(decoded.longitude(), -75.6972);

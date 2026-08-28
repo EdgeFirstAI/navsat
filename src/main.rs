@@ -21,6 +21,9 @@ use zenoh::{
     Session, Wait,
 };
 
+/// CDR schema name for published NavSatFix messages.
+const NAVSAT_FIX_SCHEMA: &str = "sensor_msgs/msg/NavSatFix";
+
 /// Global shutdown flag for signal handling
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
@@ -157,9 +160,15 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
         return;
     };
 
-    let msg = create_navsat_fix_from_tpv(tpv, stamp);
+    let msg = match create_navsat_fix_from_tpv(tpv, stamp) {
+        Ok(msg) => msg,
+        Err(e) => {
+            warn!("Failed to encode NavSatFix from TPV: {e}");
+            return;
+        }
+    };
     let msg = ZBytes::from(msg.into_cdr());
-    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
+    let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish TPV message: {}", e);
@@ -174,9 +183,15 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
         return;
     };
 
-    let msg = create_navsat_fix_from_gst(gst, stamp);
+    let msg = match create_navsat_fix_from_gst(gst, stamp) {
+        Ok(msg) => msg,
+        Err(e) => {
+            warn!("Failed to encode NavSatFix from GST: {e}");
+            return;
+        }
+    };
     let msg = ZBytes::from(msg.into_cdr());
-    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
+    let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish GST message: {}", e);

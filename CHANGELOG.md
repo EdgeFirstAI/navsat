@@ -11,8 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgrade `edgefirst-schemas` 1.5.5 → 4.0.0. NavSatFix messages are built with
   `NavSatFix::builder()` and encoded via `into_cdr()`; `serde_cdr` and
-  `SCHEMA_NAME` are removed. Package version is 1.7.0.
-- Refresh remaining crates (zenoh 1.10, clap 4.6, Tracy 0.12/0.19).
+  `SCHEMA_NAME` are removed.
 
 ## [1.6.0] - 2026-03-23
 
