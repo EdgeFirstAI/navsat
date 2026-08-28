@@ -2,7 +2,7 @@
 #
 # This workflow implements the three-phase pattern for on-target testing with coverage:
 # Phase 1: Build instrumented binaries on ARM runner (ubuntu-22.04-arm)
-# Phase 2: Run tests on real hardware (raivin with GPS)
+# Phase 2: Run tests on real hardware (raivin with GPS) — currently disabled
 # Phase 3: Process coverage data on ARM runner (matching toolchain for profraw processing)
 #
 # Coverage Strategy:
@@ -235,6 +235,8 @@ jobs:
     # Security: This runs on a self-hosted runner. Safe because this is a private
     # repo (no fork PRs) and pull_request events use the base branch workflow.
     runs-on: raivin
+    # Disabled: raivin self-hosted runner is unavailable.
+    if: false
     steps:
       - name: Clean workspace (self-hosted runner)
         run: |
@@ -332,6 +334,8 @@ jobs:
     # Security: This runs on a self-hosted runner. Safe because this is a private
     # repo (no fork PRs) and pull_request events use the base branch workflow.
     runs-on: raivin
+    # Disabled: raivin self-hosted runner is unavailable.
+    if: false
     steps:
       - name: Clean workspace (self-hosted runner)
         run: |
