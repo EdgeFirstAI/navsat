@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade `edgefirst-schemas` 1.5.5 → 4.0.0. NavSatFix messages are built with
+  `NavSatFix::builder()` and encoded via `into_cdr()`; `serde_cdr` and
+  `SCHEMA_NAME` are removed.
+
 ## [1.6.0] - 2026-03-23
 
 ### Added
