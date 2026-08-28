@@ -6,7 +6,6 @@
 use edgefirst_schemas::{
     builtin_interfaces,
     sensor_msgs::{nav_sat_fix, nav_sat_status, NavSatFix, NavSatStatus},
-    std_msgs::Header,
 };
 use gpsd_proto::{Gst, Tpv};
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
@@ -48,22 +47,24 @@ impl std::error::Error for TimestampError {
 /// # Returns
 ///
 /// A NavSatFix message populated with the TPV data.
-pub fn create_navsat_fix_from_tpv(tpv: &Tpv, stamp: builtin_interfaces::Time) -> NavSatFix {
-    NavSatFix {
-        header: Header {
-            stamp,
-            frame_id: String::new(),
-        },
-        status: NavSatStatus {
+pub fn create_navsat_fix_from_tpv(
+    tpv: &Tpv,
+    stamp: builtin_interfaces::Time,
+) -> NavSatFix<Vec<u8>> {
+    NavSatFix::builder()
+        .stamp(stamp)
+        .frame_id("")
+        .status(NavSatStatus {
             status: nav_sat_status::STATUS_FIX,
             service: nav_sat_status::SERVICE_GPS as u16,
-        },
-        latitude: tpv.lat.unwrap_or(0.0),
-        longitude: tpv.lon.unwrap_or(0.0),
-        altitude: tpv.alt.unwrap_or(0.0) as f64,
-        position_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        position_covariance_type: nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
-    }
+        })
+        .latitude(tpv.lat.unwrap_or(0.0))
+        .longitude(tpv.lon.unwrap_or(0.0))
+        .altitude(tpv.alt.unwrap_or(0.0) as f64)
+        .position_covariance([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        .position_covariance_type(nav_sat_fix::COVARIANCE_TYPE_UNKNOWN)
+        .build()
+        .expect("valid NavSatFix")
 }
 
 /// Creates a NavSatFix message from GST (GPS Pseudorange Noise Statistics)
@@ -77,22 +78,24 @@ pub fn create_navsat_fix_from_tpv(tpv: &Tpv, stamp: builtin_interfaces::Time) ->
 /// # Returns
 ///
 /// A NavSatFix message populated with the GST data.
-pub fn create_navsat_fix_from_gst(gst: &Gst, stamp: builtin_interfaces::Time) -> NavSatFix {
-    NavSatFix {
-        header: Header {
-            stamp,
-            frame_id: String::new(),
-        },
-        status: NavSatStatus {
+pub fn create_navsat_fix_from_gst(
+    gst: &Gst,
+    stamp: builtin_interfaces::Time,
+) -> NavSatFix<Vec<u8>> {
+    NavSatFix::builder()
+        .stamp(stamp)
+        .frame_id("")
+        .status(NavSatStatus {
             status: nav_sat_status::STATUS_FIX,
             service: nav_sat_status::SERVICE_GPS as u16,
-        },
-        latitude: gst.lat.unwrap_or(0.0) as f64,
-        longitude: gst.lon.unwrap_or(0.0) as f64,
-        altitude: gst.alt.unwrap_or(0.0) as f64,
-        position_covariance: [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        position_covariance_type: nav_sat_fix::COVARIANCE_TYPE_UNKNOWN,
-    }
+        })
+        .latitude(gst.lat.unwrap_or(0.0) as f64)
+        .longitude(gst.lon.unwrap_or(0.0) as f64)
+        .altitude(gst.alt.unwrap_or(0.0) as f64)
+        .position_covariance([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        .position_covariance_type(nav_sat_fix::COVARIANCE_TYPE_UNKNOWN)
+        .build()
+        .expect("valid NavSatFix")
 }
 
 /// Gets the current wall-clock timestamp.
@@ -207,15 +210,15 @@ mod tests {
         };
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
-        assert_eq!(msg.latitude, 45.4215);
-        assert_eq!(msg.longitude, -75.6972);
-        assert_eq!(msg.altitude, 100.0);
-        assert_eq!(msg.header.stamp.sec, 123);
-        assert_eq!(msg.header.stamp.nanosec, 456);
-        assert_eq!(msg.status.status, nav_sat_status::STATUS_FIX);
-        assert_eq!(msg.status.service, nav_sat_status::SERVICE_GPS as u16);
+        assert_eq!(msg.latitude(), 45.4215);
+        assert_eq!(msg.longitude(), -75.6972);
+        assert_eq!(msg.altitude(), 100.0);
+        assert_eq!(msg.stamp().sec, 123);
+        assert_eq!(msg.stamp().nanosec, 456);
+        assert_eq!(msg.status().status, nav_sat_status::STATUS_FIX);
+        assert_eq!(msg.status().service, nav_sat_status::SERVICE_GPS as u16);
         assert_eq!(
-            msg.position_covariance_type,
+            msg.position_covariance_type(),
             nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
         );
     }
@@ -227,9 +230,9 @@ mod tests {
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
-        assert_eq!(msg.latitude, 0.0);
-        assert_eq!(msg.longitude, 0.0);
-        assert_eq!(msg.altitude, 0.0);
+        assert_eq!(msg.latitude(), 0.0);
+        assert_eq!(msg.longitude(), 0.0);
+        assert_eq!(msg.altitude(), 0.0);
     }
 
     #[test]
@@ -242,11 +245,11 @@ mod tests {
         };
         let msg = create_navsat_fix_from_gst(&gst, stamp);
 
-        assert_eq!(msg.latitude as f32, 45.4215);
-        assert_eq!(msg.longitude as f32, -75.6972);
-        assert_eq!(msg.altitude, 100.0);
-        assert_eq!(msg.header.stamp.sec, 789);
-        assert_eq!(msg.header.stamp.nanosec, 101112);
+        assert_eq!(msg.latitude() as f32, 45.4215);
+        assert_eq!(msg.longitude() as f32, -75.6972);
+        assert_eq!(msg.altitude(), 100.0);
+        assert_eq!(msg.stamp().sec, 789);
+        assert_eq!(msg.stamp().nanosec, 101112);
     }
 
     #[test]
@@ -256,9 +259,9 @@ mod tests {
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
         let msg = create_navsat_fix_from_gst(&gst, stamp);
 
-        assert_eq!(msg.latitude, 0.0);
-        assert_eq!(msg.longitude, 0.0);
-        assert_eq!(msg.altitude, 0.0);
+        assert_eq!(msg.latitude(), 0.0);
+        assert_eq!(msg.longitude(), 0.0);
+        assert_eq!(msg.altitude(), 0.0);
     }
 
     #[test]
@@ -267,9 +270,9 @@ mod tests {
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
-        assert_eq!(msg.position_covariance[0], -1.0);
+        assert_eq!(msg.position_covariance()[0], -1.0);
         assert_eq!(
-            msg.position_covariance_type,
+            msg.position_covariance_type(),
             nav_sat_fix::COVARIANCE_TYPE_UNKNOWN
         );
     }
@@ -280,7 +283,24 @@ mod tests {
         let stamp = builtin_interfaces::Time { sec: 0, nanosec: 0 };
         let msg = create_navsat_fix_from_tpv(&tpv, stamp);
 
-        assert!(msg.header.frame_id.is_empty());
+        assert!(msg.frame_id().is_empty());
+    }
+
+    #[test]
+    fn navsat_fix_cdr_roundtrip() {
+        let tpv = make_tpv(Some(45.4215), Some(-75.6972), Some(100.0));
+        let stamp = builtin_interfaces::Time {
+            sec: 123,
+            nanosec: 456,
+        };
+        let msg = create_navsat_fix_from_tpv(&tpv, stamp);
+        let decoded = NavSatFix::from_cdr(msg.into_cdr()).expect("decode NavSatFix");
+        assert_eq!(decoded.latitude(), 45.4215);
+        assert_eq!(decoded.longitude(), -75.6972);
+        assert_eq!(decoded.altitude(), 100.0);
+        assert_eq!(decoded.stamp().sec, 123);
+        assert_eq!(decoded.stamp().nanosec, 456);
+        assert_eq!(decoded.status().status, nav_sat_status::STATUS_FIX);
     }
 
     /// Hardware integration tests that require real GPS hardware.

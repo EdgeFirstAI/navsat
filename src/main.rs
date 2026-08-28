@@ -5,9 +5,7 @@ use clap::Parser;
 use edgefirst_navsat::{
     create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args, TimestampError,
 };
-use edgefirst_schemas::{
-    builtin_interfaces, schema_registry::SchemaType, sensor_msgs::NavSatFix, serde_cdr::serialize,
-};
+use edgefirst_schemas::builtin_interfaces;
 use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
 use std::{
@@ -84,7 +82,7 @@ fn main() -> Result<(), GpsdError> {
 
     info!(
         "connected to gpsd {} publishing navsat messages on topic: {}",
-        &args.gpsd, &args.topic
+        args.gpsd, args.topic
     );
 
     while !SHUTDOWN.load(Ordering::SeqCst) {
@@ -160,8 +158,8 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     };
 
     let msg = create_navsat_fix_from_tpv(tpv, stamp);
-    let msg = ZBytes::from(serialize(&msg).unwrap());
-    let enc = Encoding::APPLICATION_CDR.with_schema(NavSatFix::SCHEMA_NAME);
+    let msg = ZBytes::from(msg.into_cdr());
+    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish TPV message: {}", e);
@@ -177,8 +175,8 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     };
 
     let msg = create_navsat_fix_from_gst(gst, stamp);
-    let msg = ZBytes::from(serialize(&msg).unwrap());
-    let enc = Encoding::APPLICATION_CDR.with_schema(NavSatFix::SCHEMA_NAME);
+    let msg = ZBytes::from(msg.into_cdr());
+    let enc = Encoding::APPLICATION_CDR.with_schema("sensor_msgs/msg/NavSatFix");
 
     if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
         warn!("Failed to publish GST message: {}", e);
