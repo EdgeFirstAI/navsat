@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Set the Zenoh session namespace to the system hostname and publish on
+  `gps` instead of `rt/gps`. Wire keys are `{hostname}/gps` (EDGEAI-1396).
 - Upgrade `edgefirst-schemas` 1.5.5 → 4.0.0. NavSatFix messages are built with
   `NavSatFix::builder()` and encoded via `into_cdr()`; `serde_cdr` and
   `SCHEMA_NAME` are removed.
