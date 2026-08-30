@@ -170,7 +170,12 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     let msg = ZBytes::from(msg.into_cdr());
     let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
-    if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
+    if let Err(e) = session
+        .put(topic, msg)
+        .encoding(enc)
+        .timestamp(session.new_timestamp())
+        .wait()
+    {
         warn!("Failed to publish TPV message: {}", e);
     }
 }
@@ -193,7 +198,12 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     let msg = ZBytes::from(msg.into_cdr());
     let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
-    if let Err(e) = session.put(topic, msg).encoding(enc).wait() {
+    if let Err(e) = session
+        .put(topic, msg)
+        .encoding(enc)
+        .timestamp(session.new_timestamp())
+        .wait()
+    {
         warn!("Failed to publish GST message: {}", e);
     }
 }

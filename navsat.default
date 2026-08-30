@@ -25,7 +25,7 @@ GPSD="127.0.0.1:2947"
 # ---------------------------------------------------------------------------
 # Zenoh topic where NavSatFix messages (sensor_msgs/NavSatFix) are published.
 # Consumers subscribe to this topic to receive GPS position updates.
-TOPIC="rt/gps"
+TOPIC="gps"
 
 # ---------------------------------------------------------------------------
 # Logging

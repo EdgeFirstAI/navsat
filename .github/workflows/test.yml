@@ -374,7 +374,7 @@ jobs:
           echo "LLVM_PROFILE_FILE=$LLVM_PROFILE_FILE"
 
           # Start service in background with coverage environment
-          LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" ./build/edgefirst-navsat --topic rt/gps &
+          LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" ./build/edgefirst-navsat --topic gps &
           NAVSAT_PID=$!
           echo $NAVSAT_PID > navsat.pid
 

@@ -17,11 +17,11 @@ use zenoh::config::{Config, WhatAmI};
 ///
 /// ```bash
 /// # Via command line
-/// edgefirst-navsat --gpsd 127.0.0.1:2947 --topic rt/gps
+/// edgefirst-navsat --gpsd 127.0.0.1:2947 --topic gps
 ///
 /// # Via environment variables
 /// export GPSD="127.0.0.1:2947"
-/// export TOPIC="rt/gps"
+/// export TOPIC="gps"
 /// edgefirst-navsat
 /// ```
 #[derive(Parser, Debug, Clone)]
@@ -31,8 +31,9 @@ pub struct Args {
     #[arg(long, env = "GPSD", default_value = "127.0.0.1:2947")]
     pub gpsd: String,
 
-    /// Zenoh topic for NavSatFix messages
-    #[arg(long, env = "TOPIC", default_value = "rt/gps")]
+    /// Zenoh key expression for NavSatFix messages.
+    /// The session namespace prefixes this with `{hostname}/` on the wire.
+    #[arg(long, env = "TOPIC", default_value = "gps")]
     pub topic: String,
 
     /// Application log level
@@ -60,9 +61,33 @@ pub struct Args {
     no_multicast_scouting: bool,
 }
 
+/// System hostname used as the Zenoh session namespace.
+///
+/// Empty or `/`-containing hostnames would create unintended sub-keys, so we
+/// fall back to `"localhost"` and warn. Two devices both falling back would
+/// silently share a namespace; that is a deployment defect.
+fn zenoh_namespace() -> String {
+    let raw = gethostname::gethostname().to_string_lossy().into_owned();
+    if raw.is_empty() || raw.contains('/') {
+        tracing::warn!(
+            hostname = %raw,
+            "system hostname is empty or contains '/' — falling back to \"localhost\""
+        );
+        "localhost".into()
+    } else {
+        raw
+    }
+}
+
 impl From<Args> for Config {
     fn from(args: Args) -> Self {
         let mut config = Config::default();
+
+        // Session namespace = hostname: application keys are bare (`gps`)
+        // and the wire form is `{hostname}/gps`.
+        config
+            .insert_json5("namespace", &json!(zenoh_namespace()).to_string())
+            .unwrap();
 
         config
             .insert_json5("mode", &json!(args.mode).to_string())
@@ -93,5 +118,40 @@ impl From<Args> for Config {
             .unwrap();
 
         config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse_cli() -> Args {
+        Args::parse_from([
+            "edgefirst-navsat",
+            "--topic",
+            "gps",
+            "--rust-log",
+            "info",
+            "--mode",
+            "peer",
+        ])
+    }
+
+    #[test]
+    fn zenoh_config_sets_namespace() {
+        let ns = zenoh_namespace();
+        assert!(!ns.is_empty(), "namespace should be non-empty");
+        assert!(!ns.contains('/'), "namespace must not contain '/'");
+        let rendered = Config::from(parse_cli()).to_string();
+        assert!(
+            rendered.contains(&ns),
+            "config should include namespace {ns}: {rendered}"
+        );
+    }
+
+    #[test]
+    fn cli_topic_is_gps() {
+        assert_eq!(parse_cli().topic, "gps");
     }
 }

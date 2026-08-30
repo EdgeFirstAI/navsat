@@ -15,13 +15,21 @@ Usage:
     pytest tests/test_zenoh_integration.py --junit-xml=test-results.xml -v
 """
 
+import socket
 import time
 import pytest
 import zenoh
 from edgefirst.schemas.sensor_msgs import NavSatFix
 
-# Test configuration
-ZENOH_TOPIC = "rt/gps"
+# Test configuration. The service sets session namespace = hostname, so a
+# namespace-free subscriber must use the wire key `{hostname}/gps`.
+def _hostname():
+    host = socket.gethostname()
+    if not host or "/" in host:
+        return "localhost"
+    return host
+
+ZENOH_TOPIC = f"{_hostname()}/gps"
 TEST_TIMEOUT_SECONDS = 60
 MIN_MESSAGES_REQUIRED = 5
 
