@@ -67,6 +67,23 @@ pub struct Args {
 /// `navsat.default` means "use the default".
 pub const KEEP: &[&str] = &[];
 
+/// Names of this program's env-bound arguments whose value, as reported by
+/// `var`, is present but empty and not listed in `keep`.
+///
+/// Pure: the environment is only read through `var`, so this can be unit
+/// tested with a fake lookup and no process-wide mutation.
+pub fn empty_env_vars<C: CommandFactory>(
+    keep: &[&str],
+    var: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    C::command()
+        .get_arguments()
+        .filter_map(|arg| arg.get_env().map(|e| e.to_string_lossy().into_owned()))
+        .filter(|name| !keep.contains(&name.as_str()))
+        .filter(|name| var(name).is_some_and(|v| v.is_empty()))
+        .collect()
+}
+
 /// Treat an empty environment variable as unset, so clap's declared
 /// `default_value` applies instead of failing to parse.
 ///
@@ -78,15 +95,8 @@ pub const KEEP: &[&str] = &[];
 /// Must be called before any thread is spawned — that is, before the Zenoh
 /// session is opened. Mutating the process environment is not thread-safe.
 pub unsafe fn scrub_empty_env<C: CommandFactory>(keep: &[&str]) {
-    for arg in C::command().get_arguments() {
-        let Some(env) = arg.get_env() else { continue };
-        let name = env.to_string_lossy().into_owned();
-        if keep.contains(&name.as_str()) {
-            continue;
-        }
-        if matches!(std::env::var(&name), Ok(v) if v.is_empty()) {
-            std::env::remove_var(&name);
-        }
+    for name in empty_env_vars::<C>(keep, |name| std::env::var(name).ok()) {
+        std::env::remove_var(&name);
     }
 }
 
@@ -154,14 +164,7 @@ impl From<Args> for Config {
 mod tests {
     use super::*;
     use clap::Parser;
-    use std::sync::{Mutex, MutexGuard};
-
-    /// Serialises tests that read or mutate the process environment.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn env_lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
+    use std::collections::HashMap;
 
     /// Env-bound arguments with a non-empty default where we have consciously
     /// decided that an empty value is NOT meaningful (so scrubbing to the
@@ -169,7 +172,6 @@ mod tests {
     const SCRUB_REVIEWED: &[&str] = &["GPSD", "TOPIC", "RUST_LOG", "MODE"];
 
     fn parse_cli() -> Args {
-        let _guard = env_lock();
         Args::parse_from([
             "edgefirst-navsat",
             "--topic",
@@ -179,6 +181,15 @@ mod tests {
             "--mode",
             "peer",
         ])
+    }
+
+    /// Fake environment lookup over a fixed table; never touches the process.
+    fn lookup(env: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let table: HashMap<String, String> = env
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        move |name| table.get(name).cloned()
     }
 
     #[test]
@@ -202,36 +213,43 @@ mod tests {
     }
 
     #[test]
-    fn empty_env_is_treated_as_unset() {
-        let _guard = env_lock();
-        let saved: Vec<_> = ["TRACY", "RUST_LOG", "CONNECT"]
-            .into_iter()
-            .map(|k| (k, std::env::var_os(k)))
-            .collect();
+    fn empty_env_vars_lists_only_empty_bound_vars() {
+        let env = [
+            ("TRACY", ""),           // empty bool: listed
+            ("RUST_LOG", ""),        // empty level: listed
+            ("CONNECT", ""),         // empty vec: listed
+            ("GPSD", "10.0.0.1:99"), // non-empty: not listed
+            ("MODE", "peer"),        // non-empty: not listed
+                                     // TOPIC, LISTEN, NO_MULTICAST_SCOUTING unset: not listed
+        ];
+        let mut got = empty_env_vars::<Args>(KEEP, lookup(&env));
+        got.sort();
+        assert_eq!(got, ["CONNECT", "RUST_LOG", "TRACY"]);
+    }
 
-        std::env::set_var("TRACY", "");
-        std::env::set_var("RUST_LOG", "");
-        std::env::set_var("CONNECT", "");
+    #[test]
+    fn empty_env_vars_ignores_unset_and_nonempty() {
+        let env = [("GPSD", "127.0.0.1:2947"), ("TOPIC", "gps")];
+        assert!(empty_env_vars::<Args>(KEEP, lookup(&env)).is_empty());
+        assert!(empty_env_vars::<Args>(KEEP, lookup(&[])).is_empty());
+    }
 
-        // Without scrubbing, clap sees "" and fails to parse the bool / level.
-        assert!(Args::try_parse_from(["edgefirst-navsat"]).is_err());
+    #[test]
+    fn empty_env_vars_honours_keep() {
+        let env = [("TRACY", ""), ("TOPIC", "")];
+        // Same input, TOPIC excluded once it is kept.
+        let mut got = empty_env_vars::<Args>(&[], lookup(&env));
+        got.sort();
+        assert_eq!(got, ["TOPIC", "TRACY"]);
+        assert_eq!(empty_env_vars::<Args>(&["TOPIC"], lookup(&env)), ["TRACY"]);
+        assert!(empty_env_vars::<Args>(&["TOPIC", "TRACY"], lookup(&env)).is_empty());
+    }
 
-        // SAFETY: the environment lock is held and no other test thread
-        // mutates the environment.
-        unsafe { scrub_empty_env::<Args>(KEEP) };
-
-        let result = Args::try_parse_from(["edgefirst-navsat"]);
-        for (k, v) in saved {
-            match v {
-                Some(v) => std::env::set_var(k, v),
-                None => std::env::remove_var(k),
-            }
-        }
-
-        let args = result.expect("empty env vars must fall back to defaults");
-        assert!(!args.tracy);
-        assert_eq!(args.rust_log, LevelFilter::INFO);
-        assert!(args.connect.is_empty());
+    #[test]
+    fn empty_env_vars_never_lists_unbound_vars() {
+        // Present and empty, but not bound to any argument: left alone.
+        let env = [("PATH", ""), ("HOME", ""), ("NOT_A_NAVSAT_VAR", "")];
+        assert!(empty_env_vars::<Args>(KEEP, lookup(&env)).is_empty());
     }
 
     #[test]
