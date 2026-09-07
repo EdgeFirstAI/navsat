@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Empty environment variables in `/etc/default/navsat` (`KEY=""`) are now
+  treated as unset so the documented default applies instead of failing to
+  start (EDGEAI-1094).
+
 ## [1.8.0] - 2026-08-31
 
 ### Changed

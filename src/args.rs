@@ -1,7 +1,7 @@
 // Copyright 2025 Au-Zone Technologies Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use serde_json::json;
 use tracing::level_filters::LevelFilter;
 use zenoh::config::{Config, WhatAmI};
@@ -59,6 +59,35 @@ pub struct Args {
     /// Disable Zenoh multicast peer discovery
     #[arg(long, env = "NO_MULTICAST_SCOUTING")]
     no_multicast_scouting: bool,
+}
+
+/// Environment variables where an empty value is meaningful and must be
+/// preserved (i.e. the argument has a non-empty default but "" is a
+/// documented "disable" sentinel). NavSat has none: every empty value in
+/// `navsat.default` means "use the default".
+pub const KEEP: &[&str] = &[];
+
+/// Treat an empty environment variable as unset, so clap's declared
+/// `default_value` applies instead of failing to parse.
+///
+/// Only variables bound to this program's own arguments are considered;
+/// unrelated process environment is left alone. `keep` names variables
+/// where an empty value is meaningful and must be preserved.
+///
+/// # Safety
+/// Must be called before any thread is spawned — that is, before the Zenoh
+/// session is opened. Mutating the process environment is not thread-safe.
+pub unsafe fn scrub_empty_env<C: CommandFactory>(keep: &[&str]) {
+    for arg in C::command().get_arguments() {
+        let Some(env) = arg.get_env() else { continue };
+        let name = env.to_string_lossy().into_owned();
+        if keep.contains(&name.as_str()) {
+            continue;
+        }
+        if matches!(std::env::var(&name), Ok(v) if v.is_empty()) {
+            std::env::remove_var(&name);
+        }
+    }
 }
 
 /// System hostname used as the Zenoh session namespace.
@@ -125,8 +154,22 @@ impl From<Args> for Config {
 mod tests {
     use super::*;
     use clap::Parser;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// Serialises tests that read or mutate the process environment.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Env-bound arguments with a non-empty default where we have consciously
+    /// decided that an empty value is NOT meaningful (so scrubbing to the
+    /// default is correct).
+    const SCRUB_REVIEWED: &[&str] = &["GPSD", "TOPIC", "RUST_LOG", "MODE"];
 
     fn parse_cli() -> Args {
+        let _guard = env_lock();
         Args::parse_from([
             "edgefirst-navsat",
             "--topic",
@@ -136,6 +179,59 @@ mod tests {
             "--mode",
             "peer",
         ])
+    }
+
+    #[test]
+    fn every_env_arg_is_either_scrubbable_or_explicitly_kept() {
+        use clap::CommandFactory;
+        for arg in Args::command().get_arguments() {
+            let Some(env) = arg.get_env() else { continue };
+            let name = env.to_string_lossy().into_owned();
+            let has_nonempty_default = arg
+                .get_default_values()
+                .first()
+                .is_some_and(|d| !d.is_empty());
+            if has_nonempty_default && !KEEP.contains(&name.as_str()) {
+                assert!(
+                    SCRUB_REVIEWED.contains(&name.as_str()),
+                    "{name} has a non-empty default; decide whether empty is meaningful \
+                     and add it to KEEP or SCRUB_REVIEWED"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn empty_env_is_treated_as_unset() {
+        let _guard = env_lock();
+        let saved: Vec<_> = ["TRACY", "RUST_LOG", "CONNECT"]
+            .into_iter()
+            .map(|k| (k, std::env::var_os(k)))
+            .collect();
+
+        std::env::set_var("TRACY", "");
+        std::env::set_var("RUST_LOG", "");
+        std::env::set_var("CONNECT", "");
+
+        // Without scrubbing, clap sees "" and fails to parse the bool / level.
+        assert!(Args::try_parse_from(["edgefirst-navsat"]).is_err());
+
+        // SAFETY: the environment lock is held and no other test thread
+        // mutates the environment.
+        unsafe { scrub_empty_env::<Args>(KEEP) };
+
+        let result = Args::try_parse_from(["edgefirst-navsat"]);
+        for (k, v) in saved {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
+
+        let args = result.expect("empty env vars must fall back to defaults");
+        assert!(!args.tracy);
+        assert_eq!(args.rust_log, LevelFilter::INFO);
+        assert!(args.connect.is_empty());
     }
 
     #[test]
