@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-07
+
+Patch release for EDGEAI-1094. Argument parsing only; no wire-format or
+configuration-key changes from 1.8.0.
+
 ### Fixed
 
 - Empty environment variables in `/etc/default/navsat` (`KEY=""`) are now
@@ -184,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.6.0...v1.8.0
 [1.6.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.0...v1.5.1
