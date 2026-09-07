@@ -5,10 +5,18 @@
 //!
 //! Runs with `harness = false` so this `main` is the only thread in the
 //! process when the environment is mutated, which `scrub_empty_env` requires.
+//!
+//! Because there is no libtest harness, this binary implements the minimal
+//! protocol cargo-nextest (used by CI and `make test`) expects from a custom
+//! harness: `--list --format terse` prints one `<name>: test` line per test,
+//! `--list --ignored` prints nothing, and any other invocation runs the test.
 
 use clap::Parser;
 use edgefirst_navsat::args::{scrub_empty_env, Args, KEEP};
 use tracing::level_filters::LevelFilter;
+
+/// Name reported to nextest / libtest-style listers.
+const TEST_NAME: &str = "empty_env_is_treated_as_unset";
 
 /// Env-bound arguments exercised here: a boolean, a typed level with a
 /// non-empty default, an enum with a non-empty default, and a string with a
@@ -17,6 +25,15 @@ const VARS: [&str; 4] = ["TRACY", "RUST_LOG", "MODE", "GPSD"];
 const ARGV: [&str; 1] = ["edgefirst-navsat"];
 
 fn main() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.iter().any(|a| a == "--list") {
+        // Ignored-test listing: this harness has none.
+        if !argv.iter().any(|a| a == "--ignored") {
+            println!("{TEST_NAME}: test");
+        }
+        return;
+    }
+
     for name in VARS {
         // Single-threaded: this is `main` before any thread is spawned.
         std::env::set_var(name, "");
