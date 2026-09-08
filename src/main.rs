@@ -3,6 +3,7 @@
 
 use clap::Parser;
 use edgefirst_navsat::{
+    args::{scrub_empty_env, KEEP},
     create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args, TimestampError,
 };
 use edgefirst_schemas::builtin_interfaces;
@@ -47,6 +48,12 @@ extern "C" fn handle_signal(_: libc::c_int) {
 }
 
 fn main() -> Result<(), GpsdError> {
+    // Treat KEY="" in /etc/default/navsat as unset so clap applies the
+    // documented default instead of failing to parse (EDGEAI-1094).
+    // SAFETY: single-threaded here; runs before the Zenoh session (and its
+    // worker threads) is created below.
+    unsafe { scrub_empty_env::<Args>(KEEP) };
+
     // Install signal handlers for graceful shutdown
     // This ensures LLVM coverage profraw files are flushed on SIGTERM/SIGINT
     install_signal_handlers();
