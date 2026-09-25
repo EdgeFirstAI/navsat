@@ -58,15 +58,31 @@ pytest tests/test_zenoh_integration.py -v
 
 ## Test Categories
 
-### 1. Unit Tests (Always Run - 8 tests)
-- `test_timestamp_returns_valid_time` - Validates timestamp generation
-- `test_timestamp_is_monotonic` - Ensures time moves forward
+### 1. Unit Tests (Always Run - 27 tests)
+
+`src/navsat.rs`:
+- `test_timestamp_matches_system_time` - Stamp falls between two `CLOCK_REALTIME` reads
+- `test_timestamp_consecutive_calls_valid` - Seconds and nanoseconds in range
+- `test_zenoh_timestamp_matches_stamp` - Zenoh sample timestamp carries `header.stamp` (within 2 ns NTP64 quantization)
+- `test_zenoh_timestamp_saturated_stamp` - Y2038-saturated stamp is carried unchanged
+- `test_zenoh_timestamp_negative_saturates_to_epoch` - Pre-epoch stamp maps to the Unix epoch
+- `test_read_response_parses_and_stamps_line` - A GPSD line is parsed and stamped on reception
+- `test_buffered_line_keeps_stamp_of_its_read` - A line buffered behind another keeps the stamp of the socket read that delivered it
+- `test_line_spanning_reads_takes_first_read_stamp` - A line split across reads takes the stamp of the read with its first byte
+- `test_pending_bytes_are_read_before_transport` - Bytes buffered during the GPSD handshake are read first
+- `test_read_line_end_of_stream` - A final unterminated line is returned, then end of stream
+- `test_read_line_retries_interrupted_read` - `EINTR` is retried
+- `test_read_line_propagates_io_error` - Other I/O errors are returned
+- `test_read_response_rejects_invalid_json` - Malformed GPSD lines return a JSON error
 - `test_create_navsat_fix_from_tpv_with_data` - TPV message creation
 - `test_create_navsat_fix_from_tpv_with_none_values` - Null handling
 - `test_create_navsat_fix_from_gst_with_data` - GST message creation
-- `test_create_navsat_fix_from_gst_with_none_values` - Null handling  
+- `test_create_navsat_fix_from_gst_with_none_values` - Null handling
 - `test_navsat_fix_covariance_is_unknown` - Covariance defaults
 - `test_create_navsat_fix_header_frame_id_is_empty` - Header validation
+- `navsat_fix_cdr_roundtrip` - CDR encode/decode round trip
+
+`src/args.rs` (7 tests): empty environment variable scrubbing, Zenoh namespace, and default topic.
 
 ### 2. Rust Hardware Integration Tests (`#[ignore]` - 5 tests)
 
@@ -114,13 +130,12 @@ pytest tests/test_zenoh_integration.py -v
 - **Output**: Prints test location for manual verification
 
 #### test_hardware_timestamp_accuracy
-- **Purpose**: Validates monotonic timestamp generation
+- **Purpose**: Validates wall-clock header stamps on the target
 - **What it checks**:
-  - Timestamps are monotonically increasing (time moves forward)
-  - Elapsed time measurements are accurate (~100ms test)
-  - CLOCK_MONOTONIC_RAW is functioning correctly
-- **Note**: Uses monotonic time (time since boot), not wall-clock time. This is correct for ROS message timing which requires monotonic timestamps for relative timing.
-- **Failure indicates**: System clock issues or kernel timer problems
+  - Stamps are Unix time from `CLOCK_REALTIME` and fall after 2020 (the clock has been set)
+  - Elapsed time over a ~100 ms sleep, measured with the monotonic clock, is accurate
+- **Note**: Header stamps and the Zenoh sample timestamp are the same wall-clock instant, taken when the socket read that delivered the GPSD line returns. The monotonic clock is used only to measure the sleep, never for published stamps.
+- **Failure indicates**: The system clock has not been set (no RTC, NTP or GNSS time yet) or kernel timer problems
 
 ### 3. Python Zenoh Integration Tests (5 tests)
 
