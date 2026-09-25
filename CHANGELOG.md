@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-25
+
+Minor release for EDGEAI-1943, the NavSat part of the middleware timestamp contract (EDGEAI-1937). No wire-format or configuration changes from 1.8.1; only the Zenoh sample timestamp value changes.
+
+### Changed
+
+- The Zenoh sample timestamp on every GPS sample now carries the same instant as the NavSatFix `header.stamp` (within NTP64's ~0.23 ns resolution) instead of a second, later clock read, so the recorder's MCAP `publish_time` equals the acquisition time (EDGEAI-1943).
+- GPS samples are stamped when the GPSD line is received, before JSON parsing, so parser speed no longer moves the stamp (EDGEAI-1943).
+
+### Fixed
+
+- `TESTING.md` described `CLOCK_MONOTONIC_RAW` stamps; it now documents the `CLOCK_REALTIME` stamps used since 1.6.0.
+
 ## [1.8.1] - 2026-09-07
 
 Patch release for EDGEAI-1094. Argument parsing only; no wire-format or
@@ -189,7 +202,8 @@ configuration-key changes from 1.8.0.
 - Configurable GPSD endpoint and ROS topic
 - Verbose logging support
 
-[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/EdgeFirstAI/navsat/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/EdgeFirstAI/navsat/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.6.0...v1.8.0
 [1.6.0]: https://github.com/EdgeFirstAI/navsat/compare/v1.5.1...v1.6.0
