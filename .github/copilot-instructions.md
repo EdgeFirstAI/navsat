@@ -19,7 +19,7 @@ cargo build --release              # Release build (LTO + stripped)
 cargo build --profile profiling    # Release with debug symbols for Tracy
 
 # Test
-cargo test                         # Unit tests only (8 tests)
+cargo test                         # Unit tests only (21 tests)
 cargo test -- --include-ignored    # All tests including hardware (requires GPSD + GPS receiver)
 cargo test <test_name>             # Run a single test
 
@@ -52,7 +52,7 @@ The binary has four source files in `src/`:
 
 - **`main.rs`** - Entry point. Sets up signal handlers (SIGTERM/SIGINT for graceful shutdown and coverage flush), parses CLI args, initializes tracing (stdout + journald + Tracy), opens Zenoh session, connects to GPSD, and runs the main loop dispatching GPSD messages (TPV, GST, Sky, PPS, Device).
 - **`args.rs`** - CLI argument parsing via `clap` with `derive`. All args have corresponding env vars (short names: `GPSD`, `TOPIC`, `MODE`, `CONNECT`, `LISTEN`, `TRACY`, `RUST_LOG`, `NO_MULTICAST_SCOUTING`). Implements `From<Args> for zenoh::Config` to convert args into Zenoh configuration.
-- **`navsat.rs`** - Pure functions: `create_navsat_fix_from_tpv()`, `create_navsat_fix_from_gst()`, and `timestamp()` (uses `CLOCK_REALTIME` for ROS 2 compatible wall-clock stamps). All unit tests live here.
+- **`navsat.rs`** - Pure functions: `create_navsat_fix_from_tpv()`, `create_navsat_fix_from_gst()`, `timestamp()` (uses `CLOCK_REALTIME` for ROS 2 compatible wall-clock stamps), `read_response()` (reads one GPSD line and stamps it before parsing) and `zenoh_timestamp()` (converts a header stamp to the Zenoh sample timestamp). NavSatFix and timestamp unit tests live here; argument tests live in `args.rs`.
 - **`lib.rs`** - Re-exports from `args` and `navsat` modules.
 
 Data flow: `GPS Receiver -> GPSD daemon -> TCP -> navsat (parse + convert) -> Zenoh (CDR-encoded NavSatFix)`
@@ -73,7 +73,7 @@ Messages are serialized using CDR encoding via `edgefirst-schemas` and published
 
 ## Testing
 
-- **Unit tests** (8): Always run, no hardware needed. Test timestamp generation and NavSatFix message creation from TPV/GST data.
+- **Unit tests** (21): Always run, no hardware needed. Test timestamp generation, Zenoh timestamp conversion, GPSD line reading, NavSatFix message creation from TPV/GST data, and argument handling.
 - **Hardware tests** (5, `#[ignore]`): Require GPSD + GPS receiver. Run on `raivin` self-hosted runner. Test GPSD connection, fix quality, signal quality (SNR), position reporting, and timestamp accuracy.
 - **Python Zenoh integration tests** (`tests/`): End-to-end tests requiring the navsat service running. Use `pytest` with `tests/requirements.txt`.
 
@@ -94,4 +94,6 @@ Runtime configuration is via CLI flags or environment variables. See `navsat.def
 ## Clock Conventions
 
 Header stamps use `CLOCK_REALTIME` (wall clock) per ROS 2 convention. This ensures timestamps are correlatable with logs, rosbags, and external systems. Use `CLOCK_MONOTONIC` only for internal duration/interval measurements.
+
+The stamp is the acquisition instant: host time when the GPSD line is received, taken before JSON parsing so parser speed never moves it. The Zenoh sample timestamp carries the same instant as `header.stamp` (equal within NTP64's ~0.23 ns resolution, so compare with a 1-2 ns tolerance). Never attach `session.new_timestamp()`, which is a second, later clock read. The clock is read per message, so a clock step (NTP or GNSS sync after boot) is followed immediately without restarting the service.
 

@@ -4,10 +4,11 @@
 use clap::Parser;
 use edgefirst_navsat::{
     args::{scrub_empty_env, KEEP},
-    create_navsat_fix_from_gst, create_navsat_fix_from_tpv, timestamp, Args, TimestampError,
+    create_navsat_fix_from_gst, create_navsat_fix_from_tpv, read_response, zenoh_timestamp, Args,
+    TimestampError,
 };
 use edgefirst_schemas::builtin_interfaces;
-use gpsd_proto::{get_data, handshake, GpsdError, ResponseData};
+use gpsd_proto::{handshake, GpsdError, ResponseData};
 use log::{debug, info, warn};
 use std::{
     io::{self},
@@ -95,11 +96,12 @@ fn main() -> Result<(), GpsdError> {
         args.gpsd, args.topic
     );
 
+    let mut line = Vec::new();
     while !SHUTDOWN.load(Ordering::SeqCst) {
-        let msg = match get_data(&mut reader) {
+        let (msg, stamp) = match read_response(&mut reader, &mut line) {
             Ok(m) => m,
             Err(e) => {
-                warn!("gpsd::get_data error: {}", e);
+                warn!("gpsd read error: {}", e);
                 continue;
             }
         };
@@ -107,13 +109,13 @@ fn main() -> Result<(), GpsdError> {
         match msg {
             ResponseData::Device(device) => handle_device(device),
             ResponseData::Tpv(tpv) => {
-                handle_tpv(&session, &args.topic, &tpv);
+                handle_tpv(&session, &args.topic, &tpv, stamp);
                 args.tracy.then(|| secondary_frame_mark!("tpv"));
             }
             ResponseData::Sky(sky) => handle_sky(sky),
             ResponseData::Pps(pps) => handle_pps(pps),
             ResponseData::Gst(gst) => {
-                handle_gst(&session, &args.topic, &gst);
+                handle_gst(&session, &args.topic, &gst, stamp);
                 args.tracy.then(|| secondary_frame_mark!("gst"));
             }
         }
@@ -137,13 +139,15 @@ fn handle_pps(pps: gpsd_proto::Pps) {
     debug!("{:?}", pps);
 }
 
-/// Gets the current timestamp for message headers.
+/// Resolves the reception stamp for message headers.
 ///
 /// On Y2038 overflow, logs a warning and returns a saturated timestamp so GPS
 /// data continues publishing. Returns `None` only if the system clock is before
 /// the Unix epoch (unrecoverable).
-fn get_stamp() -> Option<builtin_interfaces::Time> {
-    match timestamp() {
+fn get_stamp(
+    stamp: Result<builtin_interfaces::Time, TimestampError>,
+) -> Option<builtin_interfaces::Time> {
+    match stamp {
         Ok(t) => Some(t),
         Err(TimestampError::Overflow) => {
             warn!("Timestamp overflow: system clock exceeds i32 range (Y2038), saturating");
@@ -160,12 +164,18 @@ fn get_stamp() -> Option<builtin_interfaces::Time> {
 }
 
 #[instrument(skip_all)]
-fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
+fn handle_tpv(
+    session: &Session,
+    topic: &str,
+    tpv: &gpsd_proto::Tpv,
+    stamp: Result<builtin_interfaces::Time, TimestampError>,
+) {
     debug!("{:?}", tpv);
 
-    let Some(stamp) = get_stamp() else {
+    let Some(stamp) = get_stamp(stamp) else {
         return;
     };
+    let ts = zenoh_timestamp(&stamp, session.zid().into());
 
     let msg = match create_navsat_fix_from_tpv(tpv, stamp) {
         Ok(msg) => msg,
@@ -177,23 +187,24 @@ fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv) {
     let msg = ZBytes::from(msg.into_cdr());
     let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
-    if let Err(e) = session
-        .put(topic, msg)
-        .encoding(enc)
-        .timestamp(session.new_timestamp())
-        .wait()
-    {
+    if let Err(e) = session.put(topic, msg).encoding(enc).timestamp(ts).wait() {
         warn!("Failed to publish TPV message: {}", e);
     }
 }
 
 #[instrument(skip_all)]
-fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
+fn handle_gst(
+    session: &Session,
+    topic: &str,
+    gst: &gpsd_proto::Gst,
+    stamp: Result<builtin_interfaces::Time, TimestampError>,
+) {
     debug!("{:?}", gst);
 
-    let Some(stamp) = get_stamp() else {
+    let Some(stamp) = get_stamp(stamp) else {
         return;
     };
+    let ts = zenoh_timestamp(&stamp, session.zid().into());
 
     let msg = match create_navsat_fix_from_gst(gst, stamp) {
         Ok(msg) => msg,
@@ -205,12 +216,7 @@ fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst) {
     let msg = ZBytes::from(msg.into_cdr());
     let enc = Encoding::APPLICATION_CDR.with_schema(NAVSAT_FIX_SCHEMA);
 
-    if let Err(e) = session
-        .put(topic, msg)
-        .encoding(enc)
-        .timestamp(session.new_timestamp())
-        .wait()
-    {
+    if let Err(e) = session.put(topic, msg).encoding(enc).timestamp(ts).wait() {
         warn!("Failed to publish GST message: {}", e);
     }
 }

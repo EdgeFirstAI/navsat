@@ -76,7 +76,7 @@ NavSat handles this as follows:
 
 1. The `timestamp()` function detects when `SystemTime` seconds exceed `i32::MAX` and returns a `TimestampError::Overflow` error.
 2. The caller logs a warning and publishes the message with a saturated timestamp (`sec = i32::MAX`, `nanosec = 999_999_999`).
-3. GPS data (position, fix quality, covariance) is still published — only the header timestamp is clamped.
+3. GPS data (position, fix quality, covariance) is still published — only the header timestamp and the matching Zenoh sample timestamp are clamped.
 
 This ensures the service continues delivering positioning data past 2038 rather than silently dropping messages. Downstream consumers should be aware that saturated timestamps indicate the Y2038 limit has been reached.
 

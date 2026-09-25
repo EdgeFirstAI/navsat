@@ -8,8 +8,12 @@ use edgefirst_schemas::{
     cdr::CdrError,
     sensor_msgs::{nav_sat_fix, nav_sat_status, NavSatFix, NavSatStatus},
 };
-use gpsd_proto::{Gst, Tpv};
-use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
+use gpsd_proto::{GpsdError, Gst, ResponseData, Tpv};
+use std::{
+    io::BufRead,
+    time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH},
+};
+use zenoh::time::{Timestamp, TimestampId, NTP64};
 
 /// Errors that can occur when generating timestamps.
 #[derive(Debug)]
@@ -124,6 +128,42 @@ pub fn timestamp() -> Result<builtin_interfaces::Time, TimestampError> {
     })
 }
 
+/// Reads one GPSD JSON line and stamps it on reception.
+///
+/// The stamp is taken after the line arrives and before it is parsed, so
+/// parser speed never moves the acquisition instant. Equivalent to
+/// `gpsd_proto::get_data` apart from the stamp. `line` is a reusable buffer.
+pub fn read_response(
+    reader: &mut dyn BufRead,
+    line: &mut Vec<u8>,
+) -> Result<
+    (
+        ResponseData,
+        Result<builtin_interfaces::Time, TimestampError>,
+    ),
+    GpsdError,
+> {
+    line.clear();
+    reader.read_until(b'\n', line)?;
+    let stamp = timestamp();
+    let msg = serde_json::from_slice(line)?;
+    Ok((msg, stamp))
+}
+
+/// Builds the Zenoh sample timestamp carrying the same instant as `stamp`.
+///
+/// Publishing `header.stamp` as the Zenoh timestamp makes the recorder's MCAP
+/// `publish_time` equal the acquisition time in the CDR header. NTP64 is 32.32
+/// fixed point, so the round trip is exact only to about 1 ns. Negative
+/// seconds saturate to the Unix epoch.
+pub fn zenoh_timestamp(stamp: &builtin_interfaces::Time, id: TimestampId) -> Timestamp {
+    let duration = match u64::try_from(stamp.sec) {
+        Ok(sec) => Duration::new(sec, stamp.nanosec),
+        Err(_) => Duration::ZERO,
+    };
+    Timestamp::new(NTP64::from(duration), id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +223,85 @@ mod tests {
         assert!(ts_secs >= before.as_secs());
         assert!(ts_secs <= after.as_secs());
         assert!(time.nanosec < 1_000_000_000);
+    }
+
+    fn test_id() -> TimestampId {
+        TimestampId::try_from(1u8).unwrap()
+    }
+
+    #[test]
+    fn test_zenoh_timestamp_matches_stamp() {
+        for nanosec in [0, 1, 123_456_789, 999_999_999] {
+            let stamp = builtin_interfaces::Time {
+                sec: 1_758_800_000,
+                nanosec,
+            };
+            let ts = zenoh_timestamp(&stamp, test_id());
+            let decoded = ts.get_time().to_duration();
+
+            // NTP64 quantizes to 2^-32 s, so compare within 2 ns
+            let expected = Duration::new(stamp.sec as u64, stamp.nanosec);
+            let diff = decoded.abs_diff(expected);
+            assert!(
+                diff <= Duration::from_nanos(2),
+                "nanosec {nanosec}: decoded {decoded:?} differs from {expected:?} by {diff:?}"
+            );
+            assert_eq!(ts.get_id(), &test_id());
+        }
+    }
+
+    #[test]
+    fn test_zenoh_timestamp_saturated_stamp() {
+        let stamp = builtin_interfaces::Time {
+            sec: i32::MAX,
+            nanosec: 999_999_999,
+        };
+        let decoded = zenoh_timestamp(&stamp, test_id()).get_time().to_duration();
+        assert_eq!(decoded.as_secs(), i32::MAX as u64);
+    }
+
+    #[test]
+    fn test_zenoh_timestamp_negative_saturates_to_epoch() {
+        let stamp = builtin_interfaces::Time {
+            sec: -5,
+            nanosec: 500,
+        };
+        let decoded = zenoh_timestamp(&stamp, test_id()).get_time().to_duration();
+        assert_eq!(decoded, Duration::ZERO);
+    }
+
+    #[test]
+    fn test_read_response_stamps_each_line() {
+        let mut reader: &[u8] = b"{\"class\":\"TPV\",\"mode\":3,\"lat\":66.123}\r\n\
+            {\"class\":\"PPS\",\"device\":\"/dev/pps0\",\"real_sec\":1,\"real_nsec\":2,\"clock_sec\":3,\"clock_nsec\":4,\"precision\":-20}\r\n";
+        let mut line = Vec::new();
+
+        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let (msg, stamp) = read_response(&mut reader, &mut line).unwrap();
+        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+        match msg {
+            ResponseData::Tpv(tpv) => assert_eq!(tpv.lat, Some(66.123)),
+            other => panic!("expected TPV, got {other:?}"),
+        }
+        let stamp = stamp.unwrap();
+        let stamp = Duration::new(stamp.sec as u64, stamp.nanosec);
+        assert!(before <= stamp && stamp <= after);
+
+        // The buffer is cleared between reads
+        let (msg, stamp) = read_response(&mut reader, &mut line).unwrap();
+        assert!(matches!(msg, ResponseData::Pps(_)));
+        assert!(stamp.is_ok());
+    }
+
+    #[test]
+    fn test_read_response_rejects_invalid_json() {
+        let mut reader: &[u8] = b"not json\n";
+        let mut line = Vec::new();
+        assert!(matches!(
+            read_response(&mut reader, &mut line),
+            Err(GpsdError::JsonError(_))
+        ));
     }
 
     #[test]
