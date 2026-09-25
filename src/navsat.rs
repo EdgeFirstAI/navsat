@@ -10,13 +10,14 @@ use edgefirst_schemas::{
 };
 use gpsd_proto::{GpsdError, Gst, ResponseData, Tpv};
 use std::{
-    io::BufRead,
+    collections::VecDeque,
+    io::{self, Read},
     time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH},
 };
 use zenoh::time::{Timestamp, TimestampId, NTP64};
 
 /// Errors that can occur when generating timestamps.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TimestampError {
     /// System clock is before Unix epoch.
     BeforeEpoch(SystemTimeError),
@@ -128,24 +129,117 @@ pub fn timestamp() -> Result<builtin_interfaces::Time, TimestampError> {
     })
 }
 
-/// Reads one GPSD JSON line and stamps it on reception.
+/// Reception stamp of a GPSD line, as returned by [`timestamp`].
+pub type Stamp = Result<builtin_interfaces::Time, TimestampError>;
+
+/// Size of each read from the GPSD socket; GPSD JSON lines are well under this.
+const READ_CHUNK: usize = 8192;
+
+/// Line reader that stamps bytes when they are read from the transport.
 ///
-/// The stamp is taken after the line arrives and before it is parsed, so
-/// parser speed never moves the acquisition instant. Equivalent to
-/// `gpsd_proto::get_data` apart from the stamp. `line` is a reusable buffer.
-pub fn read_response(
-    reader: &mut dyn BufRead,
+/// Each `read()` call is stamped as it returns and the stamp is kept with the
+/// bytes it delivered. A line takes the stamp of the read that delivered its
+/// first byte, so lines buffered behind earlier ones keep their reception time
+/// no matter how long the earlier lines take to parse and publish.
+pub struct StampedLineReader<R> {
+    inner: R,
+    buf: Vec<u8>,
+    /// Length and stamp of each read still (partly) held in `buf`, oldest first.
+    chunks: VecDeque<(usize, Stamp)>,
+}
+
+impl<R: Read> StampedLineReader<R> {
+    /// Creates a reader over `inner`.
+    ///
+    /// `pending` holds bytes already taken from the transport by an earlier
+    /// reader (such as the `BufReader` used for the GPSD handshake). They are
+    /// stamped now, the earliest instant this reader can attribute to them.
+    pub fn new(inner: R, pending: Vec<u8>) -> Self {
+        let mut chunks = VecDeque::new();
+        if !pending.is_empty() {
+            chunks.push_back((pending.len(), timestamp()));
+        }
+        Self {
+            inner,
+            buf: pending,
+            chunks,
+        }
+    }
+
+    /// Reads the next line, including its newline, into `line`.
+    ///
+    /// Returns the line's reception stamp, or `None` at end of stream with no
+    /// bytes left. A final line without a newline is returned as is.
+    pub fn read_line(&mut self, line: &mut Vec<u8>) -> io::Result<Option<Stamp>> {
+        line.clear();
+        let mut scanned = 0;
+        loop {
+            if let Some(pos) = self.buf[scanned..].iter().position(|&b| b == b'\n') {
+                return Ok(Some(self.take(scanned + pos + 1, line)));
+            }
+            scanned = self.buf.len();
+
+            let old_len = self.buf.len();
+            self.buf.resize(old_len + READ_CHUNK, 0);
+            let n = match self.inner.read(&mut self.buf[old_len..]) {
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                    self.buf.truncate(old_len);
+                    continue;
+                }
+                Err(e) => {
+                    self.buf.truncate(old_len);
+                    return Err(e);
+                }
+            };
+            let stamp = timestamp();
+            self.buf.truncate(old_len + n);
+
+            if n == 0 {
+                if self.buf.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(self.take(self.buf.len(), line)));
+            }
+            self.chunks.push_back((n, stamp));
+        }
+    }
+
+    /// Moves the first `len` bytes of `buf` into `line` and returns the stamp
+    /// of the read that delivered the first of them.
+    fn take(&mut self, len: usize, line: &mut Vec<u8>) -> Stamp {
+        let stamp = self
+            .chunks
+            .front()
+            .map(|(_, stamp)| stamp.clone())
+            .expect("buffered bytes always have a chunk");
+        line.extend(self.buf.drain(..len));
+
+        let mut remaining = len;
+        while remaining > 0 {
+            let front = self.chunks.front_mut().expect("chunks cover buf");
+            if front.0 > remaining {
+                front.0 -= remaining;
+                break;
+            }
+            remaining -= front.0;
+            self.chunks.pop_front();
+        }
+        stamp
+    }
+}
+
+/// Reads one GPSD JSON line and returns it with its reception stamp.
+///
+/// Equivalent to `gpsd_proto::get_data` apart from the stamp, which is taken
+/// by `reader` when the bytes left the socket, before any parsing. At end of
+/// stream the empty line fails to parse, as with `get_data`. `line` is a
+/// reusable buffer.
+pub fn read_response<R: Read>(
+    reader: &mut StampedLineReader<R>,
     line: &mut Vec<u8>,
-) -> Result<
-    (
-        ResponseData,
-        Result<builtin_interfaces::Time, TimestampError>,
-    ),
-    GpsdError,
-> {
-    line.clear();
-    reader.read_until(b'\n', line)?;
-    let stamp = timestamp();
+) -> Result<(ResponseData, Stamp), GpsdError> {
+    let stamp = reader.read_line(line)?.unwrap_or_else(timestamp);
     let msg = serde_json::from_slice(line)?;
     Ok((msg, stamp))
 }
@@ -270,33 +364,161 @@ mod tests {
         assert_eq!(decoded, Duration::ZERO);
     }
 
+    const TPV_LINE: &[u8] = b"{\"class\":\"TPV\",\"mode\":3,\"lat\":66.123}\r\n";
+    const PPS_LINE: &[u8] = b"{\"class\":\"PPS\",\"device\":\"/dev/pps0\",\"real_sec\":1,\"real_nsec\":2,\"clock_sec\":3,\"clock_nsec\":4,\"precision\":-20}\r\n";
+
+    fn stamp_duration(stamp: &Stamp) -> Duration {
+        let t = stamp.as_ref().unwrap();
+        Duration::new(t.sec as u64, t.nanosec)
+    }
+
+    fn now() -> Duration {
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+    }
+
+    /// Returns one scripted chunk per `read()` and records when each read began.
+    struct ChunkReader {
+        chunks: VecDeque<io::Result<Vec<u8>>>,
+        read_started: Vec<Duration>,
+    }
+
+    impl ChunkReader {
+        fn new(chunks: Vec<io::Result<Vec<u8>>>) -> Self {
+            Self {
+                chunks: chunks.into(),
+                read_started: Vec::new(),
+            }
+        }
+    }
+
+    impl Read for ChunkReader {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            // Keep consecutive reads distinguishable on the wall clock
+            std::thread::sleep(Duration::from_millis(2));
+            self.read_started.push(now());
+            match self.chunks.pop_front() {
+                None => Ok(0),
+                Some(Err(e)) => Err(e),
+                Some(Ok(chunk)) => {
+                    out[..chunk.len()].copy_from_slice(&chunk);
+                    Ok(chunk.len())
+                }
+            }
+        }
+    }
+
     #[test]
-    fn test_read_response_stamps_each_line() {
-        let mut reader: &[u8] = b"{\"class\":\"TPV\",\"mode\":3,\"lat\":66.123}\r\n\
-            {\"class\":\"PPS\",\"device\":\"/dev/pps0\",\"real_sec\":1,\"real_nsec\":2,\"clock_sec\":3,\"clock_nsec\":4,\"precision\":-20}\r\n";
+    fn test_read_response_parses_and_stamps_line() {
+        let mut reader = StampedLineReader::new(TPV_LINE, Vec::new());
         let mut line = Vec::new();
 
-        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let before = now();
         let (msg, stamp) = read_response(&mut reader, &mut line).unwrap();
-        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let after = now();
 
         match msg {
             ResponseData::Tpv(tpv) => assert_eq!(tpv.lat, Some(66.123)),
             other => panic!("expected TPV, got {other:?}"),
         }
-        let stamp = stamp.unwrap();
-        let stamp = Duration::new(stamp.sec as u64, stamp.nanosec);
+        let stamp = stamp_duration(&stamp);
         assert!(before <= stamp && stamp <= after);
+    }
 
-        // The buffer is cleared between reads
-        let (msg, stamp) = read_response(&mut reader, &mut line).unwrap();
+    #[test]
+    fn test_buffered_line_keeps_stamp_of_its_read() {
+        let burst = [TPV_LINE, PPS_LINE].concat();
+        let mut reader = StampedLineReader::new(ChunkReader::new(vec![Ok(burst)]), Vec::new());
+        let mut line = Vec::new();
+
+        let (msg, first) = read_response(&mut reader, &mut line).unwrap();
+        assert!(matches!(msg, ResponseData::Tpv(_)));
+
+        // Parsing and publishing the first line must not move the second's stamp
+        std::thread::sleep(Duration::from_millis(5));
+        let (msg, second) = read_response(&mut reader, &mut line).unwrap();
         assert!(matches!(msg, ResponseData::Pps(_)));
-        assert!(stamp.is_ok());
+        assert_eq!(stamp_duration(&first), stamp_duration(&second));
+    }
+
+    #[test]
+    fn test_line_spanning_reads_takes_first_read_stamp() {
+        let (tpv_head, tpv_tail) = TPV_LINE.split_at(10);
+        let (pps_head, pps_tail) = PPS_LINE.split_at(10);
+        let mut reader = StampedLineReader::new(
+            ChunkReader::new(vec![
+                Ok(tpv_head.to_vec()),
+                Ok([tpv_tail, pps_head].concat()),
+                Ok(pps_tail.to_vec()),
+            ]),
+            Vec::new(),
+        );
+        let mut line = Vec::new();
+
+        let tpv = reader.read_line(&mut line).unwrap().unwrap();
+        assert_eq!(line, TPV_LINE);
+        let pps = reader.read_line(&mut line).unwrap().unwrap();
+        assert_eq!(line, PPS_LINE);
+
+        // Each line is stamped by the read that delivered its first byte
+        let started = &reader.inner.read_started;
+        assert_eq!(started.len(), 3);
+        let (tpv, pps) = (stamp_duration(&tpv), stamp_duration(&pps));
+        assert!(started[0] <= tpv && tpv < started[1]);
+        assert!(started[1] <= pps && pps < started[2]);
+    }
+
+    #[test]
+    fn test_pending_bytes_are_read_before_transport() {
+        let mut reader = StampedLineReader::new(PPS_LINE, TPV_LINE.to_vec());
+        let mut line = Vec::new();
+
+        let (msg, _) = read_response(&mut reader, &mut line).unwrap();
+        assert!(matches!(msg, ResponseData::Tpv(_)));
+        let (msg, _) = read_response(&mut reader, &mut line).unwrap();
+        assert!(matches!(msg, ResponseData::Pps(_)));
+    }
+
+    #[test]
+    fn test_read_line_end_of_stream() {
+        let mut reader = StampedLineReader::new(&b"partial"[..], Vec::new());
+        let mut line = Vec::new();
+
+        assert!(reader.read_line(&mut line).unwrap().is_some());
+        assert_eq!(line, b"partial");
+        assert!(reader.read_line(&mut line).unwrap().is_none());
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    fn test_read_line_retries_interrupted_read() {
+        let mut reader = StampedLineReader::new(
+            ChunkReader::new(vec![
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(TPV_LINE.to_vec()),
+            ]),
+            Vec::new(),
+        );
+        let mut line = Vec::new();
+
+        assert!(reader.read_line(&mut line).unwrap().is_some());
+        assert_eq!(line, TPV_LINE);
+    }
+
+    #[test]
+    fn test_read_line_propagates_io_error() {
+        let mut reader = StampedLineReader::new(
+            ChunkReader::new(vec![Err(io::ErrorKind::ConnectionReset.into())]),
+            Vec::new(),
+        );
+        let mut line = Vec::new();
+
+        let err = reader.read_line(&mut line).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::ConnectionReset);
     }
 
     #[test]
     fn test_read_response_rejects_invalid_json() {
-        let mut reader: &[u8] = b"not json\n";
+        let mut reader = StampedLineReader::new(&b"not json\n"[..], Vec::new());
         let mut line = Vec::new();
         assert!(matches!(
             read_response(&mut reader, &mut line),

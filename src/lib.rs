@@ -13,5 +13,5 @@ pub mod navsat;
 pub use args::Args;
 pub use navsat::{
     create_navsat_fix_from_gst, create_navsat_fix_from_tpv, read_response, timestamp,
-    zenoh_timestamp, TimestampError,
+    zenoh_timestamp, Stamp, StampedLineReader, TimestampError,
 };

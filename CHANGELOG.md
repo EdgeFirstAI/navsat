@@ -14,7 +14,7 @@ Minor release for EDGEAI-1943, the NavSat part of the middleware timestamp contr
 ### Changed
 
 - The Zenoh sample timestamp on every GPS sample now carries the same instant as the NavSatFix `header.stamp` (within NTP64's ~0.23 ns resolution) instead of a second, later clock read, so the recorder's MCAP `publish_time` equals the acquisition time (EDGEAI-1943).
-- GPS samples are stamped when the GPSD line is received, before JSON parsing, so parser speed no longer moves the stamp (EDGEAI-1943).
+- GPS samples are stamped when the socket read that delivered the GPSD line returns, before any parsing, so parser and publish time no longer move the stamp, including for lines that arrive together in one read (EDGEAI-1943).
 
 ### Fixed
 

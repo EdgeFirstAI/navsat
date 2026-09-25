@@ -5,7 +5,7 @@ use clap::Parser;
 use edgefirst_navsat::{
     args::{scrub_empty_env, KEEP},
     create_navsat_fix_from_gst, create_navsat_fix_from_tpv, read_response, zenoh_timestamp, Args,
-    TimestampError,
+    Stamp, StampedLineReader, TimestampError,
 };
 use edgefirst_schemas::builtin_interfaces;
 use gpsd_proto::{handshake, GpsdError, ResponseData};
@@ -90,6 +90,8 @@ fn main() -> Result<(), GpsdError> {
     let mut reader = io::BufReader::new(&stream);
     let mut writer = io::BufWriter::new(&stream);
     handshake(&mut reader, &mut writer)?;
+    // Data lines gpsd sent right after the WATCH reply may already be buffered.
+    let mut reader = StampedLineReader::new(&stream, reader.buffer().to_vec());
 
     info!(
         "connected to gpsd {} publishing navsat messages on topic: {}",
@@ -144,9 +146,7 @@ fn handle_pps(pps: gpsd_proto::Pps) {
 /// On Y2038 overflow, logs a warning and returns a saturated timestamp so GPS
 /// data continues publishing. Returns `None` only if the system clock is before
 /// the Unix epoch (unrecoverable).
-fn get_stamp(
-    stamp: Result<builtin_interfaces::Time, TimestampError>,
-) -> Option<builtin_interfaces::Time> {
+fn get_stamp(stamp: Stamp) -> Option<builtin_interfaces::Time> {
     match stamp {
         Ok(t) => Some(t),
         Err(TimestampError::Overflow) => {
@@ -164,12 +164,7 @@ fn get_stamp(
 }
 
 #[instrument(skip_all)]
-fn handle_tpv(
-    session: &Session,
-    topic: &str,
-    tpv: &gpsd_proto::Tpv,
-    stamp: Result<builtin_interfaces::Time, TimestampError>,
-) {
+fn handle_tpv(session: &Session, topic: &str, tpv: &gpsd_proto::Tpv, stamp: Stamp) {
     debug!("{:?}", tpv);
 
     let Some(stamp) = get_stamp(stamp) else {
@@ -193,12 +188,7 @@ fn handle_tpv(
 }
 
 #[instrument(skip_all)]
-fn handle_gst(
-    session: &Session,
-    topic: &str,
-    gst: &gpsd_proto::Gst,
-    stamp: Result<builtin_interfaces::Time, TimestampError>,
-) {
+fn handle_gst(session: &Session, topic: &str, gst: &gpsd_proto::Gst, stamp: Stamp) {
     debug!("{:?}", gst);
 
     let Some(stamp) = get_stamp(stamp) else {
